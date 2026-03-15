@@ -1,0 +1,21 @@
+CREATE TABLE events (
+  id                     SERIAL PRIMARY KEY,
+  external_match_id      INTEGER,
+  category               TEXT NOT NULL,
+  competition_name       TEXT NOT NULL,
+  competition_code       TEXT,
+  matchday               INTEGER,
+  home_team_name_short   TEXT,
+  away_team_name_short   TEXT,
+  venue_name             TEXT,
+  venue_city             TEXT,
+  venue_address          TEXT,
+  ko_italy               TIMESTAMPTZ,
+  pre_duration_minutes   INTEGER NOT NULL DEFAULT 0,
+  standard_onsite        TEXT,
+  standard_cologno       TEXT,
+  location               TEXT,
+  show_name              TEXT,
+  status                 TEXT NOT NULL DEFAULT 'TBD',
+  notes                  TEXT
+);
