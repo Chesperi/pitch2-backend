@@ -1,6 +1,6 @@
 import { Router, Request } from "express";
 import { pool } from "../db";
-import type { AssignmentWithEvent } from "./assignments";
+import type { AssignmentWithEvent, AssignmentStatus } from "../types";
 
 const router = Router();
 
@@ -135,12 +135,12 @@ router.get("/:id/assignments", async (req: Request, res) => {
     const total = parseInt(countResult.rows[0]?.count ?? "0", 10);
 
     const itemsResult = await pool.query(
-      `SELECT a.id, a.event_id, a.staff_id, a.role_code, a.fee, a.location, a.status,
-              a.plate_selected, a.notes, a.created_at, a.updated_at,
-              e.id as e_id, e.category, e.competition_name, e.competition_code, e.matchday,
-              e.home_team_name_short, e.away_team_name_short, e.venue_name, e.ko_italy,
-              e.pre_duration_minutes, e.standard_onsite, e.standard_cologno,
-              e.location as e_location, e.show_name, e.status as e_status
+      `SELECT a.id, a.event_id, a.role_id, a.staff_id, a.status, a.notes, a.created_at, a.updated_at,
+              e.id as e_id, e.external_match_id as e_external_match_id, e.category, e.competition_name,
+              e.competition_code, e.matchday, e.home_team_name_short, e.away_team_name_short,
+              e.venue_name, e.venue_city, e.venue_address, e.ko_italy, e.pre_duration_minutes,
+              e.standard_onsite, e.standard_cologno, e.location as e_area_produzione,
+              e.show_name, e.status as e_status
        FROM assignments a
        JOIN events e ON e.id = a.event_id
        ${whereClause}
@@ -154,32 +154,32 @@ router.get("/:id/assignments", async (req: Request, res) => {
       return {
         assignment: {
           id: r.id as number,
-          event_id: r.event_id as number,
-          staff_id: r.staff_id as number,
-          role_code: r.role_code as string,
-          fee: r.fee as number | null,
-          location: r.location as string | null,
-          status: r.status as string,
-          plate_selected: r.plate_selected as string | null,
+          eventId: r.event_id as number,
+          roleId: r.role_id as number,
+          staffId: r.staff_id as number | null,
+          status: r.status as AssignmentStatus,
           notes: r.notes as string | null,
-          created_at: String(r.created_at),
-          updated_at: String(r.updated_at),
+          createdAt: String(r.created_at),
+          updatedAt: String(r.updated_at),
         },
         event: {
           id: r.e_id as number,
+          externalMatchId: r.e_external_match_id != null ? String(r.e_external_match_id) : null,
           category: r.category as string,
-          competition_name: r.competition_name as string,
-          competition_code: r.competition_code as string | null,
+          competitionName: r.competition_name as string,
+          competitionCode: r.competition_code as string | null,
           matchday: r.matchday as number | null,
-          home_team_name_short: r.home_team_name_short as string | null,
-          away_team_name_short: r.away_team_name_short as string | null,
-          venue_name: r.venue_name as string | null,
-          ko_italy: r.ko_italy != null ? String(r.ko_italy) : null,
-          pre_duration_minutes: r.pre_duration_minutes as number,
-          standard_onsite: r.standard_onsite as string | null,
-          standard_cologno: r.standard_cologno as string | null,
-          location: r.e_location as string | null,
-          show_name: r.show_name as string | null,
+          homeTeamNameShort: r.home_team_name_short as string | null,
+          awayTeamNameShort: r.away_team_name_short as string | null,
+          venueName: r.venue_name as string | null,
+          venueCity: r.venue_city as string | null,
+          venueAddress: r.venue_address as string | null,
+          koItaly: r.ko_italy != null ? String(r.ko_italy) : null,
+          preDurationMinutes: r.pre_duration_minutes as number,
+          standardOnsite: r.standard_onsite as string | null,
+          standardCologno: r.standard_cologno as string | null,
+          areaProduzione: r.e_area_produzione as string | null,
+          showName: r.show_name as string | null,
           status: r.e_status as string,
         },
       };

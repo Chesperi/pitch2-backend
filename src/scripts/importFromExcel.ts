@@ -2,6 +2,7 @@ import "dotenv/config";
 import { Pool } from "pg";
 import * as XLSX from "xlsx";
 import * as path from "path";
+import { ensureAssignmentsForEvent } from "../services/assignmentsGenerator";
 
 const DATABASE_URL =
   process.env.DATABASE_URL || "postgres://prova:@localhost:5432/pitch2";
@@ -221,6 +222,52 @@ async function importEvents(client: import("pg").PoolClient, sheet: XLSX.WorkShe
   console.log(`[ok] events: ${rows.length} rows`);
 }
 
+async function importStandardRequirements(
+  client: import("pg").PoolClient,
+  sheet: XLSX.WorkSheet
+) {
+  const rows = XLSX.utils.sheet_to_json<RowRecord>(sheet);
+  await client.query("TRUNCATE TABLE standard_requirements RESTART IDENTITY CASCADE");
+
+  let imported = 0;
+  let skipped = 0;
+
+  for (const row of rows) {
+    const standard_onsite = getStr(row, "standard_onsite") ?? "";
+    const standard_cologno = getStr(row, "standard_cologno") ?? "";
+    const area_produzione = getStr(row, "location") ?? "";
+    const site = getStr(row, "site") ?? "";
+    const role_code = getStr(row, "role_code");
+    const quantity = getNum(row, "quantity") ?? 1;
+    const notes = getStr(row, "notes");
+
+    if (!standard_onsite || !standard_cologno || !area_produzione || !site || !role_code) {
+      skipped++;
+      continue;
+    }
+
+    const roleResult = await client.query(
+      "SELECT id FROM roles WHERE code = $1",
+      [role_code]
+    );
+    if (roleResult.rows.length === 0) {
+      console.warn(`[warn] role_code not found, skipping: ${role_code}`);
+      skipped++;
+      continue;
+    }
+    const role_id = roleResult.rows[0].id;
+
+    await client.query(
+      `INSERT INTO standard_requirements (standard_onsite, standard_cologno, site, area_produzione, role_id, quantity, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [standard_onsite, standard_cologno, site, area_produzione, role_id, quantity, notes]
+    );
+    imported++;
+  }
+
+  console.log(`[ok] standard_requirements: ${imported} rows (${skipped} skipped)`);
+}
+
 async function main() {
   const workbook = XLSX.readFile(EXCEL_PATH, { cellDates: true });
   const client = await pool.connect();
@@ -246,6 +293,32 @@ async function main() {
     await client.query("BEGIN");
     await importEvents(client, eventsSheet);
     await client.query("COMMIT");
+
+    // STANDARD_REQUIREMENTS (must run after roles)
+    const stdReqSheet = workbook.Sheets["STANDARD_REQUIREMENTS"];
+    if (stdReqSheet) {
+      await client.query("BEGIN");
+      await importStandardRequirements(client, stdReqSheet);
+      await client.query("COMMIT");
+    } else {
+      console.log("[skip] STANDARD_REQUIREMENTS sheet not found");
+    }
+
+    // Genera slot assignments per eventi pronti (status OK/CONFIRMED, standard valorizzati)
+    const eventsToProcess = await client.query(
+      `SELECT id FROM events
+       WHERE status IN ('OK', 'CONFIRMED')
+         AND standard_onsite IS NOT NULL AND standard_onsite <> ''
+         AND standard_cologno IS NOT NULL AND standard_cologno <> ''`
+    );
+    let generated = 0;
+    for (const row of eventsToProcess.rows) {
+      await ensureAssignmentsForEvent(pool, row.id);
+      generated++;
+    }
+    if (generated > 0) {
+      console.log(`[ok] ensureAssignmentsForEvent: ${generated} events processed`);
+    }
 
     console.log("Import complete.");
   } catch (err) {

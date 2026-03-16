@@ -1,203 +1,164 @@
 import { Router, Request } from "express";
 import { pool } from "../db";
+import type { Assignment, AssignmentWithJoins, AssignmentStatus } from "../types";
 
 const router = Router();
 
-export type AssignmentDTO = {
-  id: number;
-  event_id: number;
-  staff_id: number;
-  role_code: string;
-  fee: number | null;
-  location: string | null;
-  status: string;
-  plate_selected: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-};
+const ASSIGNMENT_STATUSES: AssignmentStatus[] = [
+  "DRAFT",
+  "READY",
+  "SENT",
+  "CONFIRMED",
+  "REJECTED",
+];
 
-export type AssignmentEventSummary = {
-  id: number;
-  category: string;
-  competition_name: string;
-  competition_code: string | null;
-  matchday: number | null;
-  home_team_name_short: string | null;
-  away_team_name_short: string | null;
-  venue_name: string | null;
-  ko_italy: string | null;
-  pre_duration_minutes: number;
-  standard_onsite: string | null;
-  standard_cologno: string | null;
-  location: string | null;
-  show_name: string | null;
-  status: string;
-};
-
-export type AssignmentStaffSummary = {
-  id: number;
-  surname: string;
-  name: string;
-  email: string | null;
-  company: string | null;
-  default_role_code: string | null;
-  default_location: string | null;
-  plates: string | null;
-  user_level: string;
-};
-
-export type AssignmentWithEventAndStaff = {
-  assignment: AssignmentDTO;
-  event: AssignmentEventSummary;
-  staff: AssignmentStaffSummary;
-};
-
-export type AssignmentWithEvent = {
-  assignment: AssignmentDTO;
-  event: AssignmentEventSummary;
-};
-
-function buildAssignmentsQuery(
-  conditions: string[],
-  params: unknown[],
-  limit: number,
-  offset: number
-) {
-  const whereClause =
-    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const paramIdx = params.length + 1;
-
-  const selectCols = `
-    a.id, a.event_id, a.staff_id, a.role_code, a.fee, a.location, a.status,
-    a.plate_selected, a.notes, a.created_at, a.updated_at,
-    e.id as e_id, e.category, e.competition_name, e.competition_code, e.matchday,
-    e.home_team_name_short, e.away_team_name_short, e.venue_name, e.ko_italy,
-    e.pre_duration_minutes, e.standard_onsite, e.standard_cologno,
-    e.location as e_location, e.show_name, e.status as e_status,
-    s.id as s_id, s.surname, s.name, s.email, s.company, s.default_role_code,
-    s.default_location, s.plates, s.user_level
-  `;
-
+function rowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWithJoins {
+  const koItaly = row.e_ko_italy;
   return {
-    countSql: `SELECT COUNT(*)::int as count
-      FROM assignments a
-      JOIN events e ON e.id = a.event_id
-      JOIN staff s ON s.id = a.staff_id
-      ${whereClause}`,
-    itemsSql: `SELECT ${selectCols}
-      FROM assignments a
-      JOIN events e ON e.id = a.event_id
-      JOIN staff s ON s.id = a.staff_id
-      ${whereClause}
-      ORDER BY e.ko_italy ASC NULLS LAST, a.id ASC
-      LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
-    params: [...params, limit, offset],
+    id: row.a_id as number,
+    eventId: row.a_event_id as number,
+    roleId: row.a_role_id as number,
+    staffId: row.a_staff_id as number | null,
+    status: row.a_status as AssignmentStatus,
+    notes: row.a_notes as string | null,
+    createdAt: String(row.a_created_at),
+    updatedAt: String(row.a_updated_at),
+    eventExternalMatchId:
+      row.e_external_match_id != null ? String(row.e_external_match_id) : null,
+    eventCategory: row.e_category as string,
+    eventCompetitionName: row.e_competition_name as string,
+    eventCompetitionCode: row.e_competition_code as string | null,
+    eventMatchDay: row.e_matchday as number | null,
+    eventHomeTeamNameShort: row.e_home_team_name_short as string | null,
+    eventAwayTeamNameShort: row.e_away_team_name_short as string | null,
+    eventVenueName: row.e_venue_name as string | null,
+    eventVenueCity: row.e_venue_city as string | null,
+    eventKoItaly: koItaly != null ? String(koItaly) : null,
+    eventStatus: row.e_status as string,
+    staffSurname: row.s_surname as string | null,
+    staffName: row.s_name as string | null,
+    staffEmail: row.s_email as string | null,
+    staffPhone: row.s_phone as string | null,
+    staffCompany: row.s_company as string | null,
+    staffFee: row.s_fee as number | null,
+    staffPlates: row.s_plates as string | null,
+    roleCode: row.r_code as string,
+    roleName: row.r_name as string,
+    roleLocation: row.r_location as string,
   };
 }
 
-function rowToAssignmentWithEventAndStaff(row: Record<string, unknown>): AssignmentWithEventAndStaff {
+function rowToAssignment(row: Record<string, unknown>): Assignment {
   return {
-    assignment: {
-      id: row.id as number,
-      event_id: row.event_id as number,
-      staff_id: row.staff_id as number,
-      role_code: row.role_code as string,
-      fee: row.fee as number | null,
-      location: row.location as string | null,
-      status: row.status as string,
-      plate_selected: row.plate_selected as string | null,
-      notes: row.notes as string | null,
-      created_at: String(row.created_at),
-      updated_at: String(row.updated_at),
-    },
-    event: {
-      id: row.e_id as number,
-      category: row.category as string,
-      competition_name: row.competition_name as string,
-      competition_code: row.competition_code as string | null,
-      matchday: row.matchday as number | null,
-      home_team_name_short: row.home_team_name_short as string | null,
-      away_team_name_short: row.away_team_name_short as string | null,
-      venue_name: row.venue_name as string | null,
-      ko_italy: row.ko_italy != null ? String(row.ko_italy) : null,
-      pre_duration_minutes: row.pre_duration_minutes as number,
-      standard_onsite: row.standard_onsite as string | null,
-      standard_cologno: row.standard_cologno as string | null,
-      location: row.e_location as string | null,
-      show_name: row.show_name as string | null,
-      status: row.e_status as string,
-    },
-    staff: {
-      id: row.s_id as number,
-      surname: row.surname as string,
-      name: row.name as string,
-      email: row.email as string | null,
-      company: row.company as string | null,
-      default_role_code: row.default_role_code as string | null,
-      default_location: row.default_location as string | null,
-      plates: row.plates as string | null,
-      user_level: row.user_level as string,
-    },
+    id: row.id as number,
+    eventId: row.event_id as number,
+    roleId: row.role_id as number,
+    staffId: row.staff_id as number | null,
+    status: row.status as AssignmentStatus,
+    notes: row.notes as string | null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
   };
 }
 
+// GET /api/assignments - list designazioni (optional eventId, staffId, from, to filter)
 router.get("/", async (req: Request, res) => {
   try {
-    const staff_id = (req.query.staff_id as string)?.trim();
-    const event_id = (req.query.event_id as string)?.trim();
-    const status = (req.query.status as string)?.trim();
+    const eventId = (req.query.eventId as string)?.trim();
+    const staffId = (req.query.staffId as string)?.trim();
     const from = (req.query.from as string)?.trim();
     const to = (req.query.to as string)?.trim();
-    const limit = Math.min(
+    let limit = Math.min(
       Math.max(parseInt(String(req.query.limit), 10) || 50, 1),
       200
     );
     const offset = Math.max(parseInt(String(req.query.offset), 10) || 0, 0);
 
+    // Quando from/to sono usati, carica tutti gli assignments del periodo (limit più alto)
+    if (from && to) {
+      limit = 5000;
+    }
+
     const conditions: string[] = [];
     const params: unknown[] = [];
     let paramIdx = 1;
 
-    if (staff_id) {
-      conditions.push(`a.staff_id = $${paramIdx}`);
-      params.push(parseInt(staff_id, 10));
-      paramIdx++;
-    }
-    if (event_id) {
+    if (eventId) {
+      const eid = parseInt(eventId, 10);
+      if (Number.isNaN(eid)) {
+        res.status(400).json({ error: "Invalid eventId" });
+        return;
+      }
       conditions.push(`a.event_id = $${paramIdx}`);
-      params.push(parseInt(event_id, 10));
+      params.push(eid);
       paramIdx++;
     }
-    if (status) {
-      conditions.push(`a.status = $${paramIdx}`);
-      params.push(status);
+
+    if (staffId) {
+      const sid = parseInt(staffId, 10);
+      if (Number.isNaN(sid)) {
+        res.status(400).json({ error: "Invalid staffId" });
+        return;
+      }
+      conditions.push(`a.staff_id = $${paramIdx}`);
+      params.push(sid);
       paramIdx++;
     }
+
     if (from) {
-      conditions.push(`e.ko_italy >= $${paramIdx}::timestamptz`);
+      conditions.push(`e.ko_italy::date >= $${paramIdx}`);
       params.push(from);
       paramIdx++;
     }
+
     if (to) {
-      conditions.push(`e.ko_italy <= $${paramIdx}::timestamptz`);
+      conditions.push(`e.ko_italy::date <= $${paramIdx}`);
       params.push(to);
       paramIdx++;
     }
 
-    const { countSql, itemsSql, params: queryParams } = buildAssignmentsQuery(
-      conditions,
-      params,
-      limit,
-      offset
-    );
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    const countResult = await pool.query<{ count: string }>(countSql, params);
+    const selectCols = `
+      a.id as a_id, a.event_id as a_event_id, a.role_id as a_role_id, a.staff_id as a_staff_id,
+      a.status as a_status, a.notes as a_notes, a.created_at as a_created_at, a.updated_at as a_updated_at,
+      e.external_match_id as e_external_match_id, e.category as e_category, e.competition_name as e_competition_name,
+      e.competition_code as e_competition_code, e.matchday as e_matchday,
+      e.home_team_name_short as e_home_team_name_short, e.away_team_name_short as e_away_team_name_short,
+      e.venue_name as e_venue_name, e.venue_city as e_venue_city, e.ko_italy as e_ko_italy,
+      e.status as e_status,
+      s.surname as s_surname, s.name as s_name, s.email as s_email, s.phone as s_phone,
+      s.company as s_company, s.fee as s_fee, s.plates as s_plates,
+      r.code as r_code, r.name as r_name, r.location as r_location
+    `;
+
+    const countResult = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::int as count
+       FROM assignments a
+       JOIN events e ON e.id = a.event_id
+       JOIN roles r ON r.id = a.role_id
+       LEFT JOIN staff s ON s.id = a.staff_id
+       ${whereClause}`,
+      params
+    );
     const total = parseInt(countResult.rows[0]?.count ?? "0", 10);
 
-    const itemsResult = await pool.query(itemsSql, queryParams);
+    params.push(limit, offset);
+    const itemsResult = await pool.query(
+      `SELECT ${selectCols}
+       FROM assignments a
+       JOIN events e ON e.id = a.event_id
+       JOIN roles r ON r.id = a.role_id
+       LEFT JOIN staff s ON s.id = a.staff_id
+       ${whereClause}
+       ORDER BY e.ko_italy ASC NULLS LAST, a.id ASC
+       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      params
+    );
+
     const items = itemsResult.rows.map((r) =>
-      rowToAssignmentWithEventAndStaff(r as Record<string, unknown>)
+      rowToAssignmentWithJoins(r as Record<string, unknown>)
     );
 
     res.json({ items, total });
@@ -209,6 +170,41 @@ router.get("/", async (req: Request, res) => {
   }
 });
 
+// POST /api/assignments - create empty slot
+router.post("/", async (req: Request, res) => {
+  try {
+    const { eventId, roleId } = req.body;
+
+    if (eventId == null || roleId == null) {
+      res.status(400).json({ error: "eventId and roleId are required" });
+      return;
+    }
+
+    const eid = parseInt(String(eventId), 10);
+    const rid = parseInt(String(roleId), 10);
+    if (Number.isNaN(eid) || Number.isNaN(rid)) {
+      res.status(400).json({ error: "eventId and roleId must be valid numbers" });
+      return;
+    }
+
+    const result = await pool.query(
+      `INSERT INTO assignments (event_id, role_id, staff_id, status, notes)
+       VALUES ($1, $2, NULL, 'DRAFT', NULL)
+       RETURNING *`,
+      [eid, rid]
+    );
+
+    const row = result.rows[0] as Record<string, unknown>;
+    res.status(201).json(rowToAssignment(row));
+  } catch (err) {
+    console.error("POST /api/assignments error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
+// PATCH /api/assignments/:id - update assignment
 router.patch("/:id", async (req: Request, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -217,7 +213,7 @@ router.patch("/:id", async (req: Request, res) => {
       return;
     }
 
-    const { status, plate_selected, notes } = req.body;
+    const { staffId, status, notes } = req.body;
 
     const currentResult = await pool.query(
       "SELECT * FROM assignments WHERE id = $1",
@@ -229,20 +225,50 @@ router.patch("/:id", async (req: Request, res) => {
     }
 
     const current = currentResult.rows[0] as Record<string, unknown>;
-    const newStatus =
-      typeof status === "string" ? status : (current.status as string);
-    const newPlateSelected =
-      plate_selected !== undefined ? plate_selected : current.plate_selected;
-    const newNotes = notes !== undefined ? notes : current.notes;
+    const updates: string[] = [];
+    const values: unknown[] = [];
+    let paramIdx = 1;
+
+    if (staffId !== undefined) {
+      const sid = staffId === null ? null : parseInt(String(staffId), 10);
+      if (staffId !== null && Number.isNaN(sid as number)) {
+        res.status(400).json({ error: "staffId must be a number or null" });
+        return;
+      }
+      updates.push(`staff_id = $${paramIdx}`);
+      values.push(sid);
+      paramIdx++;
+    }
+
+    if (typeof status === "string") {
+      if (!ASSIGNMENT_STATUSES.includes(status as AssignmentStatus)) {
+        res.status(400).json({
+          error: `status must be one of: ${ASSIGNMENT_STATUSES.join(", ")}`,
+        });
+        return;
+      }
+      updates.push(`status = $${paramIdx}`);
+      values.push(status);
+      paramIdx++;
+    }
+
+    if (notes !== undefined) {
+      updates.push(`notes = $${paramIdx}`);
+      values.push(notes === null ? null : String(notes));
+      paramIdx++;
+    }
+
+    if (updates.length === 0) {
+      res.json(rowToAssignment(current));
+      return;
+    }
+
+    updates.push(`updated_at = now()`);
+    values.push(id);
 
     await pool.query(
-      `UPDATE assignments SET
-        status = $1,
-        plate_selected = $2,
-        notes = $3,
-        updated_at = now()
-       WHERE id = $4`,
-      [newStatus, newPlateSelected, newNotes, id]
+      `UPDATE assignments SET ${updates.join(", ")} WHERE id = $${paramIdx}`,
+      values
     );
 
     const updatedResult = await pool.query(
@@ -250,23 +276,36 @@ router.patch("/:id", async (req: Request, res) => {
       [id]
     );
     const row = updatedResult.rows[0] as Record<string, unknown>;
-    const assignment: AssignmentDTO = {
-      id: row.id as number,
-      event_id: row.event_id as number,
-      staff_id: row.staff_id as number,
-      role_code: row.role_code as string,
-      fee: row.fee as number | null,
-      location: row.location as string | null,
-      status: row.status as string,
-      plate_selected: row.plate_selected as string | null,
-      notes: row.notes as string | null,
-      created_at: String(row.created_at),
-      updated_at: String(row.updated_at),
-    };
-
-    res.json(assignment);
+    res.json(rowToAssignment(row));
   } catch (err) {
     console.error("PATCH /api/assignments/:id error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
+// DELETE /api/assignments/:id
+router.delete("/:id", async (req: Request, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ error: "Invalid assignment id" });
+      return;
+    }
+
+    const result = await pool.query(
+      "DELETE FROM assignments WHERE id = $1 RETURNING id",
+      [id]
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "Assignment not found" });
+      return;
+    }
+
+    res.status(204).end();
+  } catch (err) {
+    console.error("DELETE /api/assignments/:id error:", err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "Internal server error",
     });
