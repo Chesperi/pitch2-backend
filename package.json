@@ -12,16 +12,22 @@
     "import:excel": "ts-node src/scripts/importFromExcel.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.99.2",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
+    "exceljs": "^4.4.0",
     "express": "^4.18.2",
+    "pdfkit": "^0.18.0",
     "pg": "^8.11.3",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.0",
+    "@types/pdfkit": "^0.17.5",
     "@types/pg": "^8.10.9",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",

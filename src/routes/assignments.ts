@@ -1,5 +1,7 @@
 import { Router, Request } from "express";
 import { pool } from "../db";
+import { getCurrentSession } from "../auth/session";
+import { logAuditFromRequest } from "../services/auditLog";
 import type { Assignment, AssignmentWithJoins, AssignmentStatus } from "../types";
 
 const router = Router();
@@ -59,6 +61,28 @@ function rowToAssignment(row: Record<string, unknown>): Assignment {
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
+}
+
+async function fetchRoleCodeById(roleId: number): Promise<string | null> {
+  const r = await pool.query<{ code: string }>(
+    "SELECT code FROM roles WHERE id = $1",
+    [roleId]
+  );
+  return r.rows[0]?.code ?? null;
+}
+
+async function fetchStaffDefaultRoleById(staffId: number): Promise<{
+  exists: boolean;
+  default_role_code: string | null;
+}> {
+  const r = await pool.query<{ default_role_code: string | null }>(
+    "SELECT default_role_code FROM staff WHERE id = $1",
+    [staffId]
+  );
+  if (r.rows.length === 0) {
+    return { exists: false, default_role_code: null };
+  }
+  return { exists: true, default_role_code: r.rows[0].default_role_code };
 }
 
 // GET /api/assignments - list designazioni (optional eventId, staffId, from, to filter)
@@ -204,7 +228,12 @@ router.post("/", async (req: Request, res) => {
   }
 });
 
-// PATCH /api/assignments/:id - update assignment
+/**
+ * PATCH /api/assignments/:id — aggiorna `staff_id`, `status`, `notes`.
+ * Se `staffId` è un numero (assegnazione o cambio persona), deve valere
+ * `staff.default_role_code === roles.code` del ruolo dello slot (`assignments.role_id`),
+ * come il filtro dello StaffPicker sul frontend. `staffId: null` svuota lo slot senza check.
+ */
 router.patch("/:id", async (req: Request, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -235,6 +264,35 @@ router.patch("/:id", async (req: Request, res) => {
         res.status(400).json({ error: "staffId must be a number or null" });
         return;
       }
+
+      if (sid !== null) {
+        const roleId = current.role_id as number;
+        const slotRoleCode = await fetchRoleCodeById(roleId);
+        if (slotRoleCode == null) {
+          res.status(400).json({ error: "Role not found for assignment" });
+          return;
+        }
+        const staffRow = await fetchStaffDefaultRoleById(sid);
+        if (!staffRow.exists) {
+          res.status(400).json({ error: "Staff not found" });
+          return;
+        }
+        const expected = slotRoleCode.trim();
+        const actual = (staffRow.default_role_code ?? "").trim();
+        if (actual !== expected) {
+          res.status(422).json({
+            error: "STAFF_ROLE_NOT_COMPATIBLE",
+            message:
+              "Lo staff selezionato non è compatibile con il ruolo dello slot.",
+            details: {
+              expectedRoleCode: slotRoleCode,
+              staffDefaultRoleCode: staffRow.default_role_code,
+            },
+          });
+          return;
+        }
+      }
+
       updates.push(`staff_id = $${paramIdx}`);
       values.push(sid);
       paramIdx++;
@@ -276,6 +334,24 @@ router.patch("/:id", async (req: Request, res) => {
       [id]
     );
     const row = updatedResult.rows[0] as Record<string, unknown>;
+
+    if (typeof status === "string" && String(current.status) !== status) {
+      const session = getCurrentSession(req);
+      void logAuditFromRequest(req, {
+        actorType: session ? "staff" : "system",
+        ...(session ? { actorId: session.staffId } : {}),
+        entityType: "assignment",
+        entityId: String(id),
+        action: "status_change",
+        metadata: {
+          from: String(current.status),
+          to: status,
+          eventId: current.event_id,
+          roleId: current.role_id,
+        },
+      });
+    }
+
     res.json(rowToAssignment(row));
   } catch (err) {
     console.error("PATCH /api/assignments/:id error:", err);

@@ -3,7 +3,14 @@ import type { Pool } from "pg";
 /**
  * Genera gli slot di assignment mancanti per un evento quando è "pronto"
  * (status OK o CONFIRMED) e ha standard_onsite + standard_cologno valorizzati.
- * Non filtra per site: genera tutti i requirements per quella combinazione.
+ *
+ * Logica quantità: per ogni riga in `standard_requirements` che matcha
+ * (standard_onsite, standard_cologno [, area_produzione se valorizzata sull'evento]),
+ * `quantity` è letta dalla colonna `sr.quantity` (minimo 1). Si conta quante
+ * righe `assignments` esistono già per (event_id, role_id) e si inseriscono
+ * solo `max(0, quantity - count)` nuove righe DRAFT con staff_id NULL.
+ * Non esiste in DB distinzione "slot da standard" vs "slot extra": sono tutte
+ * righe `assignments`; gli extra sono POST /api/assignments indistinguibili dopo insert.
  */
 export async function ensureAssignmentsForEvent(
   pool: Pool,
