@@ -1,10 +1,11 @@
 import { randomBytes } from "crypto";
 import { pool } from "../db";
+import type { StaffId } from "../types/staffId";
 
 const TOKEN_BYTES = 40;
 const EXPIRY_HOURS = 1;
 
-export async function createPasswordResetToken(staffId: number): Promise<string> {
+export async function createPasswordResetToken(staffId: StaffId): Promise<string> {
   const token = randomBytes(TOKEN_BYTES).toString("hex");
   const expiresAt = new Date(Date.now() + EXPIRY_HOURS * 60 * 60 * 1000);
 
@@ -38,7 +39,7 @@ export async function validatePasswordResetToken(
 
 export async function getValidPasswordResetStaffId(
   token: string
-): Promise<number | null> {
+): Promise<StaffId | null> {
   const result = await pool.query(
     `SELECT staff_id, used_at, expires_at FROM auth_password_resets WHERE token = $1`,
     [token]
@@ -49,7 +50,7 @@ export async function getValidPasswordResetStaffId(
   if (row.used_at) return null;
   if (new Date(row.expires_at) < new Date()) return null;
 
-  return row.staff_id;
+  return String(row.staff_id) as StaffId;
 }
 
 export async function markPasswordResetAsUsed(token: string): Promise<void> {

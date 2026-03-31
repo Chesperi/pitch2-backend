@@ -1,4 +1,6 @@
 import { pool } from "../db";
+import type { StaffId } from "../types/staffId";
+import { isStaffId } from "../types/staffId";
 
 export type AccessLevel = "none" | "view" | "edit";
 
@@ -18,10 +20,10 @@ function normalizeAccessLevel(raw: string | null | undefined): AccessLevel {
  * Senza riga in `staff_page_permissions` → `"none"` (nessun default permissivo).
  */
 export async function getPageAccessLevel(
-  staffId: number,
+  staffId: StaffId,
   pageKey: string
 ): Promise<AccessLevel> {
-  if (!Number.isInteger(staffId) || staffId < 1) {
+  if (!isStaffId(staffId)) {
     return "none";
   }
   const key = String(pageKey ?? "").trim();

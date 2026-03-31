@@ -1,5 +1,7 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../db";
+import type { StaffId } from "../types/staffId";
+import { isStaffId, normalizeStaffId } from "../types/staffId";
 
 const router = Router();
 
@@ -7,7 +9,7 @@ export type ConsuntivoRow = {
   eventId: number;
   eventDate: string | null;
   matchday: number | null;
-  staffId: number;
+  staffId: StaffId;
   staffName: string;
   roleId: number;
   roleCode: string;
@@ -58,6 +60,13 @@ function parseOptionalPositiveInt(raw: unknown): number | null {
   return n;
 }
 
+function parseOptionalStaffId(raw: unknown): StaffId | null {
+  if (raw === undefined || raw === null) return null;
+  const s = String(raw).trim();
+  if (!isStaffId(s)) return null;
+  return normalizeStaffId(s);
+}
+
 router.get("/", async (req: Request, res: Response) => {
   try {
     const conditions: string[] = ["a.staff_id IS NOT NULL"];
@@ -81,7 +90,7 @@ router.get("/", async (req: Request, res: Response) => {
       params.push(eventId);
     }
 
-    const staffId = parseOptionalPositiveInt(req.query.staffId);
+    const staffId = parseOptionalStaffId(req.query.staffId);
     if (staffId != null) {
       conditions.push(`a.staff_id = $${p++}`);
       params.push(staffId);
@@ -129,7 +138,7 @@ router.get("/", async (req: Request, res: Response) => {
       event_id: number;
       event_ko_italy: Date | string | null;
       matchday: number | null;
-      staff_id: number;
+      staff_id: string;
       staff_surname: string;
       staff_name: string;
       staff_fee: number | null;
@@ -156,7 +165,7 @@ router.get("/", async (req: Request, res: Response) => {
         eventId: row.event_id,
         eventDate,
         matchday: row.matchday,
-        staffId: row.staff_id,
+        staffId: String(row.staff_id) as StaffId,
         staffName: `${row.staff_surname} ${row.staff_name}`.trim(),
         roleId: row.role_id,
         roleCode: row.role_code,

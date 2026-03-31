@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../db";
 import { createMagicLinkForStaff } from "../services/authMagicLinkUrl";
+import type { StaffId } from "../types/staffId";
 
 const router = Router();
 
@@ -25,7 +26,7 @@ router.post("/create-magic-link", async (req: Request, res: Response) => {
     const emailNormalized = email.trim().toLowerCase();
 
     const staffResult = await pool.query<{
-      id: number;
+      id: string;
       email: string | null;
       active: boolean;
     }>(
@@ -44,10 +45,11 @@ router.post("/create-magic-link", async (req: Request, res: Response) => {
       return;
     }
 
-    const magicLoginUrl = await createMagicLinkForStaff(staff.id);
+    const sid = String(staff.id) as StaffId;
+    const magicLoginUrl = await createMagicLinkForStaff(sid);
 
     res.status(200).json({
-      staffId: staff.id,
+      staffId: sid,
       email: staff.email?.trim() ?? emailNormalized,
       magicLoginUrl,
     });

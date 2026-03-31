@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import { getCurrentSession } from "../auth/session";
+import type { StaffId } from "../types/staffId";
 
 export interface AuthenticatedRequest extends Request {
-  staffId: number;
+  staffId: StaffId;
 }
 
 /**

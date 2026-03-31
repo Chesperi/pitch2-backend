@@ -1,6 +1,8 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../db";
 import { listAccreditationsByEventId } from "../services/accreditationsService";
+import type { StaffId } from "../types/staffId";
+import { isStaffId, normalizeStaffId } from "../types/staffId";
 import type {
   AccreditationListItem,
   AccreditationWithStaff,
@@ -28,13 +30,16 @@ router.post("/", async (req: Request, res: Response) => {
   const { eventId, staffId, roleCode, areas, plates, notes } = req.body ?? {};
 
   const parsedEventId = Number.parseInt(String(eventId), 10);
-  const parsedStaffId = Number.parseInt(String(staffId), 10);
+  const staffIdRaw = typeof staffId === "string" ? staffId.trim() : String(staffId ?? "").trim();
+  const parsedStaffId: StaffId | null = isStaffId(staffIdRaw)
+    ? normalizeStaffId(staffIdRaw)
+    : null;
 
   if (!Number.isFinite(parsedEventId) || parsedEventId < 1) {
     res.status(400).json({ error: "Invalid eventId" });
     return;
   }
-  if (!Number.isFinite(parsedStaffId) || parsedStaffId < 1) {
+  if (!parsedStaffId) {
     res.status(400).json({ error: "Invalid staffId" });
     return;
   }

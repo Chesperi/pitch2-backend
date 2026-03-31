@@ -1,9 +1,10 @@
 import { pool } from "../db";
+import type { StaffId } from "../types/staffId";
 
 const ROME_TZ = { timeZone: "Europe/Rome" } as const;
 
 export type MyAssignmentCrewMember = {
-  staff_id: number | null;
+  staff_id: StaffId | null;
   staff_name: string | null;
   role_name: string;
   location: string | null;
@@ -108,7 +109,7 @@ function rowToListItem(row: ListRow): MyAssignmentListItem {
 }
 
 export async function listMyAssignments(
-  staffId: number
+  staffId: StaffId
 ): Promise<MyAssignmentListItem[]> {
   const result = await pool.query<ListRow>(
     `SELECT
@@ -136,7 +137,7 @@ export async function listMyAssignments(
 }
 
 type CrewRow = {
-  staff_id: number | null;
+  staff_id: string | null;
   staff_name: string | null;
   role_name: string;
   role_location: string;
@@ -144,7 +145,7 @@ type CrewRow = {
 };
 
 export async function getMyAssignmentDetail(
-  staffId: number,
+  staffId: StaffId,
   assignmentId: number
 ): Promise<MyAssignmentDetail | null> {
   const mine = await pool.query<ListRow>(
@@ -193,7 +194,7 @@ export async function getMyAssignmentDetail(
   );
 
   const crew: MyAssignmentCrewMember[] = crewResult.rows.map((r) => ({
-    staff_id: r.staff_id,
+    staff_id: r.staff_id != null ? String(r.staff_id) : null,
     staff_name: r.staff_name,
     role_name: r.role_name,
     location: r.role_location,
@@ -218,7 +219,7 @@ export type UpdateMyAssignmentPayload = {
  * TODO dopo migration, aggiungere SET request_car_pass = $n, plate_selected = $m quando presenti nel payload.
  */
 export async function updateMyAssignment(
-  staffId: number,
+  staffId: StaffId,
   assignmentId: number,
   payload: UpdateMyAssignmentPayload
 ): Promise<boolean> {
@@ -250,7 +251,7 @@ export async function updateMyAssignment(
  * TODO: eventuale colonna confirmed_at TIMESTAMPTZ — SET confirmed_at = now() insieme a status.
  */
 export async function confirmMyAssignment(
-  staffId: number,
+  staffId: StaffId,
   assignmentId: number
 ): Promise<boolean> {
   const result = await pool.query(
@@ -263,7 +264,7 @@ export async function confirmMyAssignment(
 }
 
 /** Assegnazioni inviate al freelance e ancora da confermare usano lo status `SENT` (v. staff.ts). */
-export async function confirmAllMyAssignments(staffId: number): Promise<number> {
+export async function confirmAllMyAssignments(staffId: StaffId): Promise<number> {
   const result = await pool.query(
     `UPDATE assignments
      SET status = 'CONFIRMED', updated_at = now()

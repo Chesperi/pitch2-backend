@@ -1,12 +1,14 @@
 import type { Request } from "express";
 import { pool } from "../db";
+import type { StaffId } from "../types/staffId";
+import { isStaffId, normalizeStaffId } from "../types/staffId";
 
 export type ActorType = "staff" | "system";
 
 export interface AuditLogInput {
   actorType: ActorType;
   /** Obbligatorio se `actorType === "staff"`; ignorato se `system`. */
-  actorId?: number;
+  actorId?: StaffId;
   entityType: string;
   entityId: string;
   action: string;
@@ -16,16 +18,12 @@ export interface AuditLogInput {
   userAgent?: string;
 }
 
-function isPositiveInteger(n: unknown): n is number {
-  return typeof n === "number" && Number.isInteger(n) && n > 0;
-}
-
 function validateInput(input: AuditLogInput): string | null {
   if (input.actorType !== "staff" && input.actorType !== "system") {
     return `audit: invalid actorType "${String(input.actorType)}"`;
   }
-  if (input.actorType === "staff" && !isPositiveInteger(input.actorId)) {
-    return "audit: actorType staff requires a positive integer actorId";
+  if (input.actorType === "staff" && !isStaffId(input.actorId)) {
+    return "audit: actorType staff requires a valid StaffId (UUID)";
   }
   const et = String(input.entityType ?? "").trim();
   const eid = String(input.entityId ?? "").trim();
@@ -48,8 +46,8 @@ export async function logAuditEntry(input: AuditLogInput): Promise<void> {
   }
 
   const actor_id =
-    input.actorType === "staff" && isPositiveInteger(input.actorId)
-      ? input.actorId
+    input.actorType === "staff" && isStaffId(input.actorId)
+      ? normalizeStaffId(input.actorId)
       : null;
 
   const metadata =

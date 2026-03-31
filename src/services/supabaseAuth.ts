@@ -1,4 +1,5 @@
 import { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } from "../config/supabase";
+import type { StaffId } from "../types/staffId";
 
 const CHECK_PASSWORD_PATH = "check_staff_password";
 const SET_PASSWORD_PATH = "set_staff_password";
@@ -8,7 +9,7 @@ const SET_PASSWORD_PATH = "set_staff_password";
  * La function accetta POST { staffId, password } e risponde 200 { ok: true | false }.
  */
 export async function checkStaffPasswordWithSupabase(
-  staffId: number,
+  staffId: StaffId,
   password: string
 ): Promise<boolean> {
   const url = `${SUPABASE_URL.replace(/\/$/, "")}/functions/v1/${CHECK_PASSWORD_PATH}`;
@@ -42,7 +43,7 @@ export async function checkStaffPasswordWithSupabase(
  * La function accetta POST { staffId, password } e risponde 200 { success: true }.
  */
 export async function setStaffPasswordWithSupabase(
-  staffId: number,
+  staffId: StaffId,
   password: string
 ): Promise<boolean> {
   const url = `${SUPABASE_URL.replace(/\/$/, "")}/functions/v1/${SET_PASSWORD_PATH}`;

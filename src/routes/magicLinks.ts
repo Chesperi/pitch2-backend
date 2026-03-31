@@ -11,7 +11,7 @@ router.get("/resolve", async (req, res, next) => {
     const info = await resolveMagicLinkToken(token);
     if (!info) return res.status(404).json({ error: "Invalid or expired token" });
 
-    return res.json(info); // { staffId: number }
+    return res.json(info); // { staffId: UUID string }
   } catch (err) {
     next(err);
   }

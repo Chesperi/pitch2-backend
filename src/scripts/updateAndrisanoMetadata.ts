@@ -1,13 +1,23 @@
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 
+/**
+ * Aggiorna user_metadata su Auth (es. staff_id UUID allineato a public.staff).
+ * Imposta ANDRISANO_STAFF_ID=<uuid> nel .env o modifica lo script.
+ */
 async function main() {
   const supabaseUrl = process.env.SUPABASE_URL!;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
   const email = "andrea.andrisano47@gmail.com";
-  const staffId = 1;
+  const staffId = String(
+    process.env.ANDRISANO_STAFF_ID ?? ""
+  ).trim();
+  if (!staffId) {
+    console.error("Imposta ANDRISANO_STAFF_ID=<uuid staff> nel .env");
+    process.exit(1);
+  }
 
   const { data: staff, error: staffErr } = await supabase
     .from("staff")

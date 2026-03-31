@@ -3,6 +3,8 @@ import { pool } from "../db";
 import { getCurrentSession } from "../auth/session";
 import { logAuditFromRequest } from "../services/auditLog";
 import type { Assignment, AssignmentWithJoins, AssignmentStatus } from "../types";
+import type { StaffId } from "../types/staffId";
+import { isStaffId, normalizeStaffId } from "../types/staffId";
 
 const router = Router();
 
@@ -20,7 +22,8 @@ function rowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWithJ
     id: row.a_id as number,
     eventId: row.a_event_id as number,
     roleId: row.a_role_id as number,
-    staffId: row.a_staff_id as number | null,
+    staffId:
+      row.a_staff_id != null ? String(row.a_staff_id) : null,
     status: row.a_status as AssignmentStatus,
     notes: row.a_notes as string | null,
     createdAt: String(row.a_created_at),
@@ -55,7 +58,7 @@ function rowToAssignment(row: Record<string, unknown>): Assignment {
     id: row.id as number,
     eventId: row.event_id as number,
     roleId: row.role_id as number,
-    staffId: row.staff_id as number | null,
+    staffId: row.staff_id != null ? String(row.staff_id) : null,
     status: row.status as AssignmentStatus,
     notes: row.notes as string | null,
     createdAt: String(row.created_at),
@@ -71,7 +74,7 @@ async function fetchRoleCodeById(roleId: number): Promise<string | null> {
   return r.rows[0]?.code ?? null;
 }
 
-async function fetchStaffDefaultRoleById(staffId: number): Promise<{
+async function fetchStaffDefaultRoleById(staffId: StaffId): Promise<{
   exists: boolean;
   default_role_code: string | null;
 }> {
@@ -119,13 +122,12 @@ router.get("/", async (req: Request, res) => {
     }
 
     if (staffId) {
-      const sid = parseInt(staffId, 10);
-      if (Number.isNaN(sid)) {
+      if (!isStaffId(staffId)) {
         res.status(400).json({ error: "Invalid staffId" });
         return;
       }
       conditions.push(`a.staff_id = $${paramIdx}`);
-      params.push(sid);
+      params.push(normalizeStaffId(staffId));
       paramIdx++;
     }
 
@@ -259,9 +261,14 @@ router.patch("/:id", async (req: Request, res) => {
     let paramIdx = 1;
 
     if (staffId !== undefined) {
-      const sid = staffId === null ? null : parseInt(String(staffId), 10);
-      if (staffId !== null && Number.isNaN(sid as number)) {
-        res.status(400).json({ error: "staffId must be a number or null" });
+      const sid: StaffId | null =
+        staffId === null
+          ? null
+          : isStaffId(String(staffId).trim())
+            ? normalizeStaffId(String(staffId).trim())
+            : null;
+      if (staffId !== null && sid === null) {
+        res.status(400).json({ error: "staffId must be a staff UUID or null" });
         return;
       }
 

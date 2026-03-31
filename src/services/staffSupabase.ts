@@ -1,7 +1,8 @@
 import { supabaseAdmin } from "../supabaseClient";
+import type { StaffId } from "../types/staffId";
 
 export type StaffInfo = {
-  id: number;
+  id: StaffId;
   email: string | null;
   name: string | null;
   surname: string | null;

@@ -2,11 +2,12 @@ import { Router, Request, Response } from "express";
 import { getCurrentSession } from "../auth/session";
 import { getPageAccessLevel } from "../services/pagePermissions";
 import { PAGE_KEYS } from "./staffPagePermissions";
+import type { StaffId } from "../types/staffId";
 
 const router = Router();
 
 export type MePermissionsResponse = {
-  staffId: number;
+  staffId: StaffId;
   pagePermissions: {
     pageKey: string;
     accessLevel: "none" | "view" | "edit";

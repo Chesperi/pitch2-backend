@@ -2,6 +2,7 @@ import { Router, Request } from "express";
 import { pool } from "../db";
 import { createMagicLinkForStaff } from "../services/authMagicLinkUrl";
 import { requirePitch2Session, AuthenticatedRequest } from "../middleware/requirePitch2Session";
+import { isStaffId, normalizeStaffId } from "../types/staffId";
 import {
   requirePageEdit,
   requirePageRead,
@@ -16,7 +17,7 @@ type AssignmentRow = {
   a_id: number;
   a_event_id: number;
   a_role_id: number;
-  a_staff_id: number | null;
+  a_staff_id: string | null;
   a_status: string;
   a_notes: string | null;
   e_competition_name: string;
@@ -133,7 +134,7 @@ router.get("/me", requirePitch2Session, async (req: Request, res) => {
        JOIN events e ON e.id = a.event_id
        JOIN roles r ON r.id = a.role_id
        LEFT JOIN staff s ON s.id = a.staff_id
-       WHERE a.staff_id = $1
+       WHERE a.staff_id = $1::uuid
        ORDER BY e.ko_italy ASC`,
       [staffId]
     );
@@ -144,7 +145,7 @@ router.get("/me", requirePitch2Session, async (req: Request, res) => {
         id: r.a_id,
         event_id: r.a_event_id,
         role_id: r.a_role_id,
-        staff_id: r.a_staff_id ?? 0,
+        staff_id: r.a_staff_id ?? null,
         role_code: r.r_code,
         fee: r.s_fee ?? null,
         location: r.r_location,
@@ -191,13 +192,18 @@ router.get("/me", requirePitch2Session, async (req: Request, res) => {
 router.post("/send-person", async (req: Request, res) => {
   try {
     if (!(await requirePageEdit(req, res, "designazioni"))) return;
-    const { staffId, assignmentIds } = req.body as {
-      staffId: number;
+    const { staffId: bodyStaffId, assignmentIds } = req.body as {
+      staffId: unknown;
       assignmentIds: number[];
     };
 
+    const staffIdNorm =
+      typeof bodyStaffId === "string" && isStaffId(bodyStaffId.trim())
+        ? normalizeStaffId(bodyStaffId.trim())
+        : null;
+
     if (
-      !staffId ||
+      !staffIdNorm ||
       !Array.isArray(assignmentIds) ||
       assignmentIds.length === 0
     ) {
@@ -212,8 +218,8 @@ router.post("/send-person", async (req: Request, res) => {
        JOIN events e ON e.id = a.event_id
        JOIN roles r ON r.id = a.role_id
        LEFT JOIN staff s ON s.id = a.staff_id
-       WHERE a.id IN (${placeholders}) AND a.staff_id = $1`,
-      [staffId, ...assignmentIds]
+       WHERE a.id IN (${placeholders}) AND a.staff_id = $1::uuid`,
+      [staffIdNorm, ...assignmentIds]
     );
 
     const assignments = result.rows as AssignmentRow[];
@@ -232,7 +238,7 @@ router.post("/send-person", async (req: Request, res) => {
     const staffName =
       `${staff.s_name ?? ""} ${staff.s_surname ?? ""}`.trim() || staffEmail;
 
-    const magicUrl = await createMagicLinkForStaff(staffId);
+    const magicUrl = await createMagicLinkForStaff(staffIdNorm);
 
     const events = mapAssignmentsToEvents(assignments);
     const html = renderDesignazioniEmail({
@@ -249,7 +255,7 @@ router.post("/send-person", async (req: Request, res) => {
     });
 
     console.log("SEND PERSON MAIL", {
-      staffId,
+      staffId: staffIdNorm,
       assignmentIds,
       count: assignments.length,
       magicUrl,
@@ -284,9 +290,9 @@ router.post("/send-period", async (req: Request, res) => {
       [from, to]
     );
 
-    const map = new Map<number, number[]>();
+    const map = new Map<string, number[]>();
     for (const row of result.rows) {
-      const staffId = row.a_staff_id as number;
+      const staffId = normalizeStaffId(String(row.a_staff_id));
       const id = row.a_id as number;
       const list = map.get(staffId) ?? [];
       list.push(id);
@@ -295,7 +301,7 @@ router.post("/send-period", async (req: Request, res) => {
 
     let sentCount = 0;
 
-    for (const [staffId, assignmentIds] of map.entries()) {
+    for (const [staffIdKey, assignmentIds] of map.entries()) {
       const placeholders = assignmentIds.map((_, i) => `$${i + 2}`).join(", ");
       const detailResult = await pool.query(
         `SELECT ${selectCols}
@@ -303,8 +309,8 @@ router.post("/send-period", async (req: Request, res) => {
          JOIN events e ON e.id = a.event_id
          JOIN roles r ON r.id = a.role_id
          LEFT JOIN staff s ON s.id = a.staff_id
-         WHERE a.id IN (${placeholders}) AND a.staff_id = $1`,
-        [staffId, ...assignmentIds]
+         WHERE a.id IN (${placeholders}) AND a.staff_id = $1::uuid`,
+        [staffIdKey, ...assignmentIds]
       );
 
       const assignments = detailResult.rows as AssignmentRow[];
@@ -313,13 +319,13 @@ router.post("/send-period", async (req: Request, res) => {
       const staff = assignments[0];
       const staffEmail = staff.s_email?.trim();
       if (!staffEmail) {
-        console.warn("SEND PERIOD: skip staff", staffId, "(no email)");
+        console.warn("SEND PERIOD: skip staff", staffIdKey, "(no email)");
         continue;
       }
 
       const staffName =
         `${staff.s_name ?? ""} ${staff.s_surname ?? ""}`.trim() || staffEmail;
-      const magicUrl = await createMagicLinkForStaff(staffId);
+      const magicUrl = await createMagicLinkForStaff(staffIdKey);
 
       const events = mapAssignmentsToEvents(assignments);
       const html = renderDesignazioniEmail({

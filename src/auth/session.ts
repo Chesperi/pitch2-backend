@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { Request, Response } from "express";
+import type { StaffId } from "../types/staffId";
+import { isStaffId, normalizeStaffId } from "../types/staffId";
 
 const SESSION_SECRET =
   process.env.SESSION_SECRET || "pitch2-dev-secret-change-in-production";
@@ -36,9 +38,9 @@ const cookieOpts = (maxAge: number) => ({
   ...(COOKIE_DOMAIN && { domain: COOKIE_DOMAIN }),
 });
 
-export function setMagicSession(res: Response, staffId: number): void {
+export function setMagicSession(res: Response, staffId: StaffId): void {
   const payload = JSON.stringify({
-    staffId,
+    staffId: normalizeStaffId(staffId),
     issuedAt: Date.now(),
   });
   res.cookie(MAGIC_COOKIE, sign(payload), cookieOpts(MAGIC_TTL_SEC));
@@ -50,14 +52,15 @@ export function clearMagicSession(res: Response): void {
 
 export function setPersistentSession(
   res: Response,
-  staffId: number,
+  staffId: StaffId,
   rememberMe: boolean
 ): void {
+  const sid = normalizeStaffId(staffId);
   const sessionId = createHmac("sha256", SESSION_SECRET)
-    .update(`${staffId}-${Date.now()}-${Math.random()}`)
+    .update(`${sid}-${Date.now()}-${Math.random()}`)
     .digest("hex")
     .slice(0, 32);
-  const payload = JSON.stringify({ staffId, sessionId });
+  const payload = JSON.stringify({ staffId: sid, sessionId });
   const ttl = rememberMe ? PERSISTENT_TTL_SEC : SHORT_TTL_SEC;
   res.cookie(PERSISTENT_COOKIE, sign(payload), cookieOpts(ttl));
 }
@@ -65,7 +68,7 @@ export function setPersistentSession(
 /** Cookie operativo `pitch2_session` per le API (default: sessione lunga come rememberMe=true). */
 export function createPitch2PersistentSession(
   res: Response,
-  staffId: number,
+  staffId: StaffId,
   options?: { rememberMe?: boolean }
 ): void {
   const rememberMe = options?.rememberMe !== false;
@@ -73,8 +76,8 @@ export function createPitch2PersistentSession(
 }
 
 export type Pitch2Session =
-  | { type: "persistent"; staffId: number }
-  | { type: "magic"; staffId: number };
+  | { type: "persistent"; staffId: StaffId }
+  | { type: "magic"; staffId: StaffId };
 
 /** @deprecated Use Pitch2Session */
 export type SessionInfo = Pitch2Session;
@@ -85,8 +88,9 @@ export function getCurrentSession(req: Request): Pitch2Session | null {
     const raw = unsign(persistent);
     if (raw) {
       try {
-        const { staffId } = JSON.parse(raw);
-        if (typeof staffId === "number") return { type: "persistent", staffId };
+        const { staffId } = JSON.parse(raw) as { staffId?: unknown };
+        if (isStaffId(staffId))
+          return { type: "persistent", staffId: normalizeStaffId(staffId) };
       } catch {
         // invalid
       }
@@ -98,10 +102,14 @@ export function getCurrentSession(req: Request): Pitch2Session | null {
     const raw = unsign(magic);
     if (raw) {
       try {
-        const { staffId, issuedAt } = JSON.parse(raw);
-        if (typeof staffId === "number" && issuedAt) {
+        const { staffId, issuedAt } = JSON.parse(raw) as {
+          staffId?: unknown;
+          issuedAt?: unknown;
+        };
+        if (isStaffId(staffId) && typeof issuedAt === "number") {
           const age = Date.now() - issuedAt;
-          if (age < MAGIC_TTL_SEC * 1000) return { type: "magic", staffId };
+          if (age < MAGIC_TTL_SEC * 1000)
+            return { type: "magic", staffId: normalizeStaffId(staffId) };
         }
       } catch {
         // invalid

@@ -1,5 +1,6 @@
 import { pool } from "../db";
 import type { AccreditationWithStaff } from "../types";
+import type { StaffId } from "../types/staffId";
 
 function toIsoTimestamp(v: unknown): string {
   if (v instanceof Date) return v.toISOString();
@@ -45,7 +46,7 @@ export async function listAccreditationsByEventId(
   const result = await pool.query<{
     id: number;
     event_id: number;
-    staff_id: number;
+    staff_id: string;
     role_code: string | null;
     areas: string | null;
     plates: string | null;
@@ -65,7 +66,7 @@ export async function listAccreditationsByEventId(
   return result.rows.map((row) => ({
     id: row.id,
     eventId: row.event_id,
-    staffId: row.staff_id,
+    staffId: String(row.staff_id) as StaffId,
     roleCode: row.role_code,
     areas: row.areas,
     plates: row.plates,

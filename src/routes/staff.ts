@@ -8,8 +8,15 @@ import {
 import { logAuditFromRequest } from "../services/auditLog";
 import type { AssignmentWithEvent, AssignmentStatus } from "../types";
 import { ensureSupabaseUserForStaff } from "../services/staffSupabase";
+import type { StaffId } from "../types/staffId";
+import { isStaffId, normalizeStaffId } from "../types/staffId";
 
 const router = Router();
+
+function parseStaffRouteId(raw: string): StaffId | null {
+  const t = String(raw ?? "").trim();
+  return isStaffId(t) ? normalizeStaffId(t) : null;
+}
 
 /** Allineato a `roles.location` in `src/routes/roles.ts` (estendere se servono altre sedi). */
 const ALLOWED_DEFAULT_LOCATIONS = ["STADIO", "COLOGNO", "LEEDS", "REMOTE"] as const;
@@ -28,7 +35,7 @@ async function roleCodeExists(code: string): Promise<boolean> {
 }
 
 export type StaffItem = {
-  id: number;
+  id: StaffId;
   surname: string;
   name: string;
   email: string | null;
@@ -207,6 +214,7 @@ router.post("/", async (req: Request, res) => {
     );
 
     const staff = result.rows[0] as StaffItem;
+    staff.id = String(staff.id) as StaffId;
 
     try {
       await ensureSupabaseUserForStaff({
@@ -256,8 +264,8 @@ router.post("/", async (req: Request, res) => {
 router.patch("/:id/finance-access", async (req: Request, res) => {
   try {
     if (!(await requirePageEdit(req, res, "master"))) return;
-    const id = parseInt(req.params.id, 10);
-    if (Number.isNaN(id) || id < 1) {
+    const id = parseStaffRouteId(req.params.id);
+    if (!id) {
       res.status(400).json({ error: "Invalid staff id" });
       return;
     }
@@ -278,7 +286,7 @@ router.patch("/:id/finance-access", async (req: Request, res) => {
     }
 
     const result = await pool.query<{
-      id: number;
+      id: string;
       surname: string;
       name: string;
       email: string | null;
@@ -298,7 +306,7 @@ router.patch("/:id/finance-access", async (req: Request, res) => {
 
     const row = result.rows[0];
     res.status(200).json({
-      id: row.id,
+      id: String(row.id) as StaffId,
       surname: row.surname,
       name: row.name,
       email: row.email,
@@ -319,8 +327,8 @@ router.patch("/:id/finance-access", async (req: Request, res) => {
 router.patch("/:id", async (req: Request, res) => {
   try {
     if (!(await requirePageEdit(req, res, "database"))) return;
-    const id = parseInt(req.params.id, 10);
-    if (Number.isNaN(id)) {
+    const id = parseStaffRouteId(req.params.id);
+    if (!id) {
       res.status(400).json({ error: "Invalid staff id" });
       return;
     }
@@ -466,7 +474,7 @@ router.patch("/:id", async (req: Request, res) => {
     if (staff.email) {
       try {
         await ensureSupabaseUserForStaff({
-          id: staff.id,
+          id: String(staff.id) as StaffId,
           email: staff.email,
           name: staff.name,
           surname: staff.surname,
@@ -516,8 +524,8 @@ router.patch("/:id", async (req: Request, res) => {
 router.get("/:id/assignments", async (req: Request, res) => {
   try {
     if (!(await requirePageRead(req, res, "database"))) return;
-    const id = parseInt(req.params.id, 10);
-    if (Number.isNaN(id)) {
+    const id = parseStaffRouteId(req.params.id);
+    if (!id) {
       res.status(400).json({ error: "Invalid staff id" });
       return;
     }
@@ -589,7 +597,8 @@ router.get("/:id/assignments", async (req: Request, res) => {
           id: r.id as number,
           eventId: r.event_id as number,
           roleId: r.role_id as number,
-          staffId: r.staff_id as number | null,
+          staffId:
+            r.staff_id != null ? String(r.staff_id) : null,
           status: r.status as AssignmentStatus,
           notes: r.notes as string | null,
           createdAt: String(r.created_at),

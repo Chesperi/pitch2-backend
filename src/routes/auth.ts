@@ -29,19 +29,7 @@ import {
   AuthenticatedRequest,
 } from "../middleware/requirePitch2Session";
 import { getStaffProfileById } from "../services/staffService";
-
-async function getActiveStaffIdByEmail(
-  emailNormalized: string
-): Promise<number | null> {
-  const result = await pool.query<{ id: number }>(
-    `SELECT id FROM staff
-     WHERE LOWER(TRIM(email)) = $1 AND active = true
-     LIMIT 1`,
-    [emailNormalized]
-  );
-  const row = result.rows[0];
-  return row?.id ?? null;
-}
+import { normalizeStaffId } from "../types/staffId";
 
 const router = Router();
 const APP_BASE =
@@ -79,7 +67,7 @@ router.get(
   }
 );
 
-// POST /api/auth/supabase/session — valida JWT Supabase, staff per email, cookie pitch2_session
+// POST /api/auth/supabase/session — valida JWT, risolve staff per auth.users.id (UUID)
 router.post("/supabase/session", async (req: Request, res: Response) => {
   try {
     const access_token = (req.body as { access_token?: unknown })?.access_token;
@@ -101,18 +89,14 @@ router.post("/supabase/session", async (req: Request, res: Response) => {
       return;
     }
 
-    const emailRaw = userData.user.email?.trim().toLowerCase();
-    if (!emailRaw) {
-      res.status(401).json({ error: "Email non disponibile sul token" });
-      return;
-    }
-
-    const staffId = await getActiveStaffIdByEmail(emailRaw);
-    if (staffId == null) {
+    const supabaseUserId = normalizeStaffId(userData.user.id);
+    const profile = await getStaffProfileById(supabaseUserId);
+    if (!profile) {
       res.status(401).json({ error: "Staff non trovato o non attivo" });
       return;
     }
 
+    const staffId = profile.id;
     createPitch2PersistentSession(res, staffId, { rememberMe: true });
 
     res.status(200).json({ ok: true, staffId });
@@ -230,9 +214,14 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
       [emailTrimmed]
     );
 
-    const staff = staffResult.rows[0] as { id: number; name: string | null; surname: string | null; email: string | null } | undefined;
+    const staff = staffResult.rows[0] as {
+      id: string;
+      name: string | null;
+      surname: string | null;
+      email: string | null;
+    } | undefined;
     if (staff && staff.email?.trim()) {
-      const token = await createPasswordResetToken(staff.id);
+      const token = await createPasswordResetToken(String(staff.id));
       const resetUrl = `${FRONTEND_BASE.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
       const staffName = `${staff.name ?? ""} ${staff.surname ?? ""}`.trim() || staff.email.trim();
 

@@ -1,3 +1,5 @@
+import type { StaffId } from "./types/staffId";
+
 export type AssignmentStatus = "DRAFT" | "READY" | "SENT" | "CONFIRMED" | "REJECTED";
 export type EventAssignmentsStatus = "DRAFT" | "READY_TO_SEND";
 
@@ -5,7 +7,7 @@ export interface Assignment {
   id: number;
   eventId: number;
   roleId: number;
-  staffId: number | null;
+  staffId: StaffId | null;
   status: AssignmentStatus;
   notes: string | null;
   createdAt: string;
@@ -161,7 +163,7 @@ export type EventUpdatePayload = Partial<EventCreatePayload>;
 export interface Accreditation {
   id: number;
   eventId: number;
-  staffId: number;
+  staffId: StaffId;
   roleCode: string | null;
   areas: string | null;
   plates: string | null;
@@ -185,7 +187,7 @@ export interface AccreditationWithStaff extends Accreditation {
 export interface AccreditationListItem {
   id: number;
   eventId: number;
-  staffId: number;
+  staffId: StaffId;
   company: string | null;
   surname: string | null;
   name: string | null;

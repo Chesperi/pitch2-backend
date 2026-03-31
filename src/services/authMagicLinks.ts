@@ -1,11 +1,12 @@
 import { randomBytes } from "crypto";
 import { pool } from "../db";
+import type { StaffId } from "../types/staffId";
 
 const AUTH_MAGIC_LINK_TTL_MS = 1000 * 60 * 15; // 15 minuti
 const TOKEN_BYTES = 32;
 
 export async function createAuthMagicLink(
-  staffId: number,
+  staffId: StaffId,
   redirectPath = "/designazioni"
 ): Promise<string> {
   const token = randomBytes(TOKEN_BYTES).toString("hex");
@@ -22,7 +23,7 @@ export async function createAuthMagicLink(
 
 export async function validateAndConsumeAuthMagicLink(
   token: string
-): Promise<{ staffId: number; redirectPath: string } | null> {
+): Promise<{ staffId: StaffId; redirectPath: string } | null> {
   const result = await pool.query(
     `SELECT staff_id, redirect_path, expires_at, used_at
      FROM auth_magic_links
@@ -41,7 +42,7 @@ export async function validateAndConsumeAuthMagicLink(
   );
 
   return {
-    staffId: row.staff_id,
+    staffId: String(row.staff_id) as StaffId,
     redirectPath: row.redirect_path || "/designazioni",
   };
 }

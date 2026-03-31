@@ -63,7 +63,8 @@ function mapRowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWi
     id: row.a_id as number,
     eventId: row.a_event_id as number,
     roleId: row.a_role_id as number,
-    staffId: row.a_staff_id as number | null,
+    staffId:
+      row.a_staff_id != null ? String(row.a_staff_id) : null,
     status: row.a_status as AssignmentStatus,
     notes: row.a_notes as string | null,
     createdAt: String(row.a_created_at),

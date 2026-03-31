@@ -4,6 +4,8 @@ import {
   requirePageEdit,
   requirePageRead,
 } from "../middleware/requirePageAccess";
+import type { StaffId } from "../types/staffId";
+import { isStaffId, normalizeStaffId } from "../types/staffId";
 
 const router = Router();
 
@@ -25,7 +27,7 @@ export type PageKey = (typeof PAGE_KEYS)[number];
 export type AccessLevel = "none" | "view" | "edit";
 
 export type StaffPermissionsRow = {
-  staffId: number;
+  staffId: StaffId;
   name: string;
   email: string;
   permissions: {
@@ -52,7 +54,7 @@ router.get("/", async (_req: Request, res: Response) => {
   try {
     if (!(await requirePageRead(_req, res, "master"))) return;
     const staffResult = await pool.query<{
-      id: number;
+      id: string;
       surname: string;
       name: string;
       email: string | null;
@@ -69,39 +71,41 @@ router.get("/", async (_req: Request, res: Response) => {
       return;
     }
 
-    const ids = staffRows.map((s) => s.id);
+    const ids = staffRows.map((s) => normalizeStaffId(String(s.id)));
     const permResult = await pool.query<{
-      staff_id: number;
+      staff_id: string;
       page_key: string;
       access_level: string;
     }>(
       `SELECT staff_id, page_key, access_level
        FROM staff_page_permissions
-       WHERE staff_id = ANY($1::int[])`,
+       WHERE staff_id = ANY($1::uuid[])`,
       [ids]
     );
 
-    const permMap = new Map<number, Map<string, AccessLevel>>();
+    const permMap = new Map<string, Map<string, AccessLevel>>();
     for (const r of permResult.rows) {
       if (!isAccessLevel(r.access_level)) continue;
       if (!isPageKey(r.page_key)) continue;
-      let m = permMap.get(r.staff_id);
+      const sid = normalizeStaffId(String(r.staff_id));
+      let m = permMap.get(sid);
       if (!m) {
         m = new Map();
-        permMap.set(r.staff_id, m);
+        permMap.set(sid, m);
       }
       m.set(r.page_key, r.access_level);
     }
 
     const items: StaffPermissionsRow[] = staffRows.map((s) => {
-      const byPage = permMap.get(s.id) ?? new Map();
+      const sid = normalizeStaffId(String(s.id));
+      const byPage = permMap.get(sid) ?? new Map();
       const permissions = PAGE_KEYS.map((pageKey) => ({
         pageKey,
         accessLevel: (byPage.get(pageKey) ?? "none") as AccessLevel,
       }));
       const fullName = `${s.surname} ${s.name}`.trim();
       return {
-        staffId: s.id,
+        staffId: sid as StaffId,
         name: fullName,
         email: s.email ?? "",
         permissions,
@@ -123,14 +127,15 @@ router.patch("/", async (req: Request, res: Response) => {
     const pageKeyRaw = body.pageKey;
     const accessLevelRaw = body.accessLevel;
 
-    const staffId =
-      typeof staffIdRaw === "number"
-        ? staffIdRaw
-        : parseInt(String(staffIdRaw ?? ""), 10);
-    if (!Number.isInteger(staffId) || staffId < 1) {
-      res.status(400).json({ error: "staffId must be a positive integer" });
+    const staffIdStr =
+      typeof staffIdRaw === "string"
+        ? staffIdRaw.trim()
+        : String(staffIdRaw ?? "").trim();
+    if (!isStaffId(staffIdStr)) {
+      res.status(400).json({ error: "staffId must be a staff UUID" });
       return;
     }
+    const staffId = normalizeStaffId(staffIdStr);
 
     const pageKey =
       typeof pageKeyRaw === "string" ? pageKeyRaw.trim() : "";

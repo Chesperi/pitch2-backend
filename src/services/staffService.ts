@@ -1,9 +1,11 @@
 import { pool } from "../db";
+import type { StaffId } from "../types/staffId";
+import { normalizeStaffId } from "../types/staffId";
 
 export type StaffFinanceVisibility = "HIDDEN" | "VISIBLE";
 
 export type StaffProfileAuth = {
-  id: number;
+  id: StaffId;
   email: string | null;
   name: string;
   surname: string;
@@ -12,11 +14,15 @@ export type StaffProfileAuth = {
   finance_visibility: StaffFinanceVisibility;
 };
 
+/**
+ * Risolve lo staff per PK `id` o per `supabase_id` (stesso valore di auth.users.id).
+ */
 export async function getStaffProfileById(
-  staffId: number
+  staffOrSupabaseId: string
 ): Promise<StaffProfileAuth | null> {
+  const key = normalizeStaffId(staffOrSupabaseId);
   const result = await pool.query<{
-    id: number;
+    id: string;
     email: string | null;
     name: string;
     surname: string;
@@ -26,15 +32,23 @@ export async function getStaffProfileById(
   }>(
     `SELECT id, email, name, surname, user_level, active, finance_visibility
      FROM staff
-     WHERE id = $1`,
-    [staffId]
+     WHERE active = true
+       AND (
+         LOWER(TRIM(id::text)) = $1
+         OR (
+           supabase_id IS NOT NULL
+           AND LOWER(TRIM(supabase_id::text)) = $1
+         )
+       )
+     LIMIT 1`,
+    [key]
   );
 
   const row = result.rows[0];
   if (!row) return null;
 
   return {
-    id: row.id,
+    id: String(row.id),
     email: row.email,
     name: row.name,
     surname: row.surname,

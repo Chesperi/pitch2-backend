@@ -1,10 +1,11 @@
 import { pool } from "../db";
+import type { StaffId } from "../types/staffId";
 
 const BLOCK_WINDOW_SECONDS = 600; // 10 minuti
 const MAX_FAILED_ATTEMPTS = 3;
 
 export async function recordLoginAttempt(
-  staffId: number,
+  staffId: StaffId,
   success: boolean
 ): Promise<void> {
   await pool.query(
@@ -14,7 +15,7 @@ export async function recordLoginAttempt(
 }
 
 export async function getLoginBlockInfo(
-  staffId: number
+  staffId: StaffId
 ): Promise<{ blocked: boolean; retryAfterSeconds: number }> {
   const since = new Date(Date.now() - BLOCK_WINDOW_SECONDS * 1000);
 

@@ -1,11 +1,12 @@
 import { createAuthMagicLink } from "./authMagicLinks";
+import type { StaffId } from "../types/staffId";
 
 /**
  * Genera un magic link per il login dello staff e restituisce l'URL assoluto.
  * Usato nelle email designazioni.
  */
 export async function createMagicLinkForStaff(
-  staffId: number,
+  staffId: StaffId,
   redirectPath = "/designazioni"
 ): Promise<string> {
   const token = await createAuthMagicLink(staffId, redirectPath);

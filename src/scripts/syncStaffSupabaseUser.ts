@@ -2,24 +2,23 @@
  * Riallinea Supabase Auth con un record staff (metadata staff_id, nome, ecc.).
  *
  * Uso (dalla root del repo, con .env caricato):
- *   npx ts-node -r dotenv/config src/scripts/syncStaffSupabaseUser.ts <staff_id>
- *
- * Esempio:
- *   npx ts-node -r dotenv/config src/scripts/syncStaffSupabaseUser.ts 1
+ *   npx ts-node -r dotenv/config src/scripts/syncStaffSupabaseUser.ts <staff_uuid>
  */
 import "dotenv/config";
 import { pool } from "../db";
 import { syncSupabaseUserMetadataForStaff } from "../services/staffSupabase";
+import { isStaffId, normalizeStaffId } from "../types/staffId";
 
 async function main() {
-  const id = Number(process.argv[2]);
-  if (!Number.isFinite(id) || id < 1) {
-    console.error("Usage: ts-node syncStaffSupabaseUser.ts <staff_id>");
+  const raw = String(process.argv[2] ?? "").trim();
+  if (!isStaffId(raw)) {
+    console.error("Usage: ts-node syncStaffSupabaseUser.ts <staff_uuid>");
     process.exit(1);
   }
+  const id = normalizeStaffId(raw);
 
   const { rows } = await pool.query<{
-    id: number;
+    id: string;
     email: string | null;
     name: string | null;
     surname: string | null;
@@ -38,14 +37,18 @@ async function main() {
   }
 
   const out = await syncSupabaseUserMetadataForStaff({
-    id: staff.id,
+    id: String(staff.id),
     email: staff.email,
     name: staff.name,
     surname: staff.surname,
   });
 
   if (out) {
-    console.log("OK", { staffId: staff.id, supabaseUserId: out.id, email: staff.email });
+    console.log("OK", {
+      staffId: String(staff.id),
+      supabaseUserId: out.id,
+      email: staff.email,
+    });
   } else {
     console.warn(
       "No Supabase user created or found by email. Check SUPABASE_* env and Auth users list."
