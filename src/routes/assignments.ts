@@ -16,7 +16,8 @@ const ASSIGNMENT_STATUSES: AssignmentStatus[] = [
 ];
 
 const ASSIGNMENT_LIST_SELECT = `
-  a.id as a_id, a.event_id as a_event_id, a.role_code as a_role_code, a.staff_id as a_staff_id,
+  a.id as a_id, a.event_id as a_event_id, a.role_code as a_role_code, a.role_location as a_role_location,
+  a.staff_id as a_staff_id,
   a.status as a_status, a.notes as a_notes, a.created_at as a_created_at, a.updated_at as a_updated_at,
   e.category as e_category, e.competition_name as e_competition_name, e.matchday as e_matchday,
   e.date as e_date, e.ko_italy_time as e_ko_italy_time,
@@ -44,6 +45,7 @@ function rowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWithJ
     id: row.a_id as number,
     eventId: String(row.a_event_id ?? ""),
     roleCode: String(row.a_role_code ?? ""),
+    roleLocation: String(row.a_role_location ?? ""),
     staffId: row.a_staff_id != null ? Number(row.a_staff_id) : null,
     status: row.a_status as AssignmentStatus,
     notes: row.a_notes as string | null,
@@ -63,7 +65,6 @@ function rowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWithJ
     staffCompany: row.s_company as string | null,
     staffFee: row.s_fee != null ? String(row.s_fee) : null,
     staffPlates: row.s_plates as string | null,
-    roleLocation: String(row.r_location ?? ""),
     roleDescription: row.r_description != null ? String(row.r_description) : null,
   };
 }
@@ -73,6 +74,7 @@ function rowToAssignment(row: Record<string, unknown>): Assignment {
     id: row.id as number,
     eventId: String(row.event_id ?? ""),
     roleCode: String(row.role_code ?? ""),
+    roleLocation: String(row.role_location ?? ""),
     staffId: row.staff_id != null ? Number(row.staff_id) : null,
     status: row.status as AssignmentStatus,
     notes: row.notes as string | null,
@@ -84,15 +86,20 @@ function rowToAssignment(row: Record<string, unknown>): Assignment {
 async function fetchStaffDefaultRoleByPk(staffPk: number): Promise<{
   exists: boolean;
   default_role_code: string | null;
+  default_location: string | null;
 }> {
-  const r = await pool.query<{ default_role_code: string | null }>(
-    "SELECT default_role_code FROM staff WHERE id = $1",
-    [staffPk]
-  );
+  const r = await pool.query<{
+    default_role_code: string | null;
+    default_location: string | null;
+  }>("SELECT default_role_code, default_location FROM staff WHERE id = $1", [staffPk]);
   if (r.rows.length === 0) {
-    return { exists: false, default_role_code: null };
+    return { exists: false, default_role_code: null, default_location: null };
   }
-  return { exists: true, default_role_code: r.rows[0].default_role_code };
+  return {
+    exists: true,
+    default_role_code: r.rows[0].default_role_code,
+    default_location: r.rows[0].default_location,
+  };
 }
 
 async function resolveStaffPkFromBody(raw: unknown): Promise<number | null | "invalid"> {
@@ -165,7 +172,7 @@ router.get("/", async (req: Request, res) => {
       `SELECT COUNT(*)::int as count
        FROM assignments a
        JOIN events e ON e.id = a.event_id
-       JOIN roles r ON r.role_code = a.role_code
+       JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
        LEFT JOIN staff s ON s.id = a.staff_id
        ${whereClause}`,
       params
@@ -177,7 +184,7 @@ router.get("/", async (req: Request, res) => {
       `SELECT ${ASSIGNMENT_LIST_SELECT}
        FROM assignments a
        JOIN events e ON e.id = a.event_id
-       JOIN roles r ON r.role_code = a.role_code
+       JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
        LEFT JOIN staff s ON s.id = a.staff_id
        ${whereClause}
        ORDER BY e.date ASC NULLS LAST, e.ko_italy_time ASC NULLS LAST, a.id ASC
@@ -201,9 +208,10 @@ router.get("/", async (req: Request, res) => {
 // POST /api/assignments - create empty slot
 router.post("/", async (req: Request, res) => {
   try {
-    const { eventId, roleCode } = req.body as {
+    const { eventId, roleCode, roleLocation } = req.body as {
       eventId?: unknown;
       roleCode?: unknown;
+      roleLocation?: unknown;
     };
 
     const eid =
@@ -212,17 +220,23 @@ router.post("/", async (req: Request, res) => {
         : null;
     const rc =
       typeof roleCode === "string" && roleCode.trim() ? roleCode.trim() : null;
+    const rl =
+      typeof roleLocation === "string" && roleLocation.trim()
+        ? roleLocation.trim().toUpperCase()
+        : null;
 
-    if (!eid || !rc) {
-      res.status(400).json({ error: "eventId and roleCode are required" });
+    if (!eid || !rc || !rl) {
+      res.status(400).json({
+        error: "eventId, roleCode, and roleLocation are required",
+      });
       return;
     }
 
     const result = await pool.query(
-      `INSERT INTO assignments (event_id, role_code, staff_id, status, notes)
-       VALUES ($1, $2, NULL, 'DRAFT', NULL)
+      `INSERT INTO assignments (event_id, role_code, role_location, staff_id, status, notes)
+       VALUES ($1, $2, $3, NULL, 'DRAFT', NULL)
        RETURNING *`,
-      [eid, rc]
+      [eid, rc, rl]
     );
 
     const row = result.rows[0] as Record<string, unknown>;
@@ -237,7 +251,8 @@ router.post("/", async (req: Request, res) => {
 
 /**
  * PATCH /api/assignments/:id — aggiorna `staff_id`, `status`, `notes`.
- * Con staff assegnato, `staff.default_role_code` deve coincidere con `assignments.role_code`.
+ * Con staff assegnato, coppia (default_role_code, default_location) dello staff deve coincidere
+ * con (role_code, role_location) dello slot.
  */
 router.patch("/:id", async (req: Request, res) => {
   try {
@@ -272,7 +287,8 @@ router.patch("/:id", async (req: Request, res) => {
 
       if (resolved !== null) {
         const slotRoleCode = String(current.role_code ?? "").trim();
-        if (!slotRoleCode) {
+        const slotRoleLoc = String(current.role_location ?? "").trim();
+        if (!slotRoleCode || !slotRoleLoc) {
           res.status(400).json({ error: "Role not found for assignment" });
           return;
         }
@@ -281,16 +297,21 @@ router.patch("/:id", async (req: Request, res) => {
           res.status(400).json({ error: "Staff not found" });
           return;
         }
-        const expected = slotRoleCode;
-        const actual = (staffRow.default_role_code ?? "").trim();
-        if (actual !== expected) {
+        const codeOk =
+          (staffRow.default_role_code ?? "").trim() === slotRoleCode;
+        const locOk =
+          (staffRow.default_location ?? "").trim().toUpperCase() ===
+          slotRoleLoc.toUpperCase();
+        if (!codeOk || !locOk) {
           res.status(422).json({
             error: "STAFF_ROLE_NOT_COMPATIBLE",
             message:
               "Lo staff selezionato non è compatibile con il ruolo dello slot.",
             details: {
               expectedRoleCode: slotRoleCode,
+              expectedRoleLocation: slotRoleLoc,
               staffDefaultRoleCode: staffRow.default_role_code,
+              staffDefaultLocation: staffRow.default_location,
             },
           });
           return;
@@ -352,6 +373,7 @@ router.patch("/:id", async (req: Request, res) => {
           to: status,
           eventId: current.event_id,
           roleCode: current.role_code,
+          roleLocation: current.role_location,
         },
       });
     }

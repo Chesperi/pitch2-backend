@@ -156,7 +156,9 @@ router.post("/", async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const pg = err as { code?: string };
     if (pg.code === "23505") {
-      res.status(409).json({ error: "A role with this code already exists" });
+      res.status(409).json({
+        error: "A role with this code and location already exists",
+      });
       return;
     }
     console.error("POST /api/roles error:", err);
@@ -280,7 +282,9 @@ router.patch("/:id", async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const pg = err as { code?: string };
     if (pg.code === "23505") {
-      res.status(409).json({ error: "A role with this code already exists" });
+      res.status(409).json({
+        error: "A role with this code and location already exists",
+      });
       return;
     }
     console.error("PATCH /api/roles/:id error:", err);

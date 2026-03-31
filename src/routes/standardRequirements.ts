@@ -16,6 +16,7 @@ type StandardRequirementBody = {
   site?: string;
   areaProduzione?: string | null;
   roleCode?: string;
+  roleLocation?: string;
   quantity?: number;
   notes?: string | null;
 };
@@ -34,6 +35,7 @@ function standardChangedFields(
     ch.push("areaProduzione");
   }
   if (before.roleCode !== after.roleCode) ch.push("roleCode");
+  if (before.roleLocation !== after.roleLocation) ch.push("roleLocation");
   if (before.quantity !== after.quantity) ch.push("quantity");
   if ((before.notes ?? null) !== (after.notes ?? null)) ch.push("notes");
   return ch;
@@ -89,14 +91,15 @@ function rowToStandardRequirementWithRole(
 
 const SELECT_COLS = `
   sr.id, sr.standard_onsite, sr.standard_cologno, sr.site, sr.area_produzione,
-  sr.role_code, sr.quantity, sr.notes,
-  r.location as role_location, r.description as role_description
+  sr.role_code, sr.role_location, sr.quantity, sr.notes,
+  r.description as role_description
 `;
 
-async function roleCodeExists(roleCode: string): Promise<boolean> {
-  const r = await pool.query("SELECT 1 FROM roles WHERE role_code = $1", [
-    roleCode,
-  ]);
+async function rolePairExists(roleCode: string, roleLocation: string): Promise<boolean> {
+  const r = await pool.query(
+    "SELECT 1 FROM roles WHERE role_code = $1 AND location = $2 LIMIT 1",
+    [roleCode, roleLocation]
+  );
   return r.rowCount != null && r.rowCount > 0;
 }
 
@@ -106,7 +109,7 @@ async function fetchRequirementWithRoleById(
   const result = await pool.query(
     `SELECT ${SELECT_COLS}
      FROM standard_requirements sr
-     JOIN roles r ON r.role_code = sr.role_code
+     JOIN roles r ON r.role_code = sr.role_code AND r.location = sr.role_location
      WHERE sr.id = $1`,
     [id]
   );
@@ -182,7 +185,7 @@ router.get("/", async (req: Request, res: Response) => {
 
     const countResult = await pool.query<{ count: string }>(
       `SELECT COUNT(*)::int as count FROM standard_requirements sr
-       JOIN roles r ON r.role_code = sr.role_code ${whereClause}`,
+       JOIN roles r ON r.role_code = sr.role_code AND r.location = sr.role_location ${whereClause}`,
       params
     );
     const total = parseInt(countResult.rows[0]?.count ?? "0", 10);
@@ -191,9 +194,9 @@ router.get("/", async (req: Request, res: Response) => {
     const result = await pool.query(
       `SELECT ${SELECT_COLS}
        FROM standard_requirements sr
-       JOIN roles r ON r.role_code = sr.role_code
+       JOIN roles r ON r.role_code = sr.role_code AND r.location = sr.role_location
        ${whereClause}
-       ORDER BY sr.standard_onsite, sr.standard_cologno, sr.site, sr.area_produzione, sr.role_code
+       ORDER BY sr.standard_onsite, sr.standard_cologno, sr.site, sr.area_produzione, sr.role_code, sr.role_location
        LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
       params
     );
@@ -235,12 +238,21 @@ router.post("/", async (req: Request, res: Response) => {
 
     const roleCode =
       typeof body.roleCode === "string" ? body.roleCode.trim() : "";
+    const roleLocationRaw =
+      typeof body.roleLocation === "string" ? body.roleLocation.trim() : "";
+    const roleLocation = roleLocationRaw ? roleLocationRaw.toUpperCase() : "";
     if (!roleCode) {
       res.status(400).json({ error: "roleCode is required" });
       return;
     }
-    if (!(await roleCodeExists(roleCode))) {
-      res.status(400).json({ error: "roleCode does not reference an existing role" });
+    if (!roleLocation) {
+      res.status(400).json({ error: "roleLocation is required" });
+      return;
+    }
+    if (!(await rolePairExists(roleCode, roleLocation))) {
+      res.status(400).json({
+        error: "roleCode and roleLocation do not reference an existing role",
+      });
       return;
     }
 
@@ -259,10 +271,10 @@ router.post("/", async (req: Request, res: Response) => {
 
     const insert = await pool.query<{ id: number }>(
       `INSERT INTO standard_requirements
-        (standard_onsite, standard_cologno, site, area_produzione, role_code, quantity, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+        (standard_onsite, standard_cologno, site, area_produzione, role_code, role_location, quantity, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id`,
-      [onsite, cologno, siteParsed.value, area, roleCode, quantity, notes]
+      [onsite, cologno, siteParsed.value, area, roleCode, roleLocation, quantity, notes]
     );
 
     const newId = insert.rows[0]?.id;
@@ -290,6 +302,7 @@ router.post("/", async (req: Request, res: Response) => {
         site: full.site,
         areaProduzione: full.areaProduzione,
         roleCode: full.roleCode,
+        roleLocation: full.roleLocation,
         quantity: full.quantity,
         notes: full.notes,
       },
@@ -365,18 +378,42 @@ router.patch("/:id", async (req: Request, res: Response) => {
       values.push(normalizeAreaProduzione(body.areaProduzione));
     }
 
+    let nextRoleCode = before.roleCode;
+    let nextRoleLocation = before.roleLocation;
     if (body.roleCode !== undefined) {
       const rc = typeof body.roleCode === "string" ? body.roleCode.trim() : "";
       if (!rc) {
         res.status(400).json({ error: "roleCode cannot be empty" });
         return;
       }
-      if (!(await roleCodeExists(rc))) {
-        res.status(400).json({ error: "roleCode does not reference an existing role" });
+      nextRoleCode = rc;
+    }
+    if (body.roleLocation !== undefined) {
+      const rl =
+        typeof body.roleLocation === "string"
+          ? body.roleLocation.trim().toUpperCase()
+          : "";
+      if (!rl) {
+        res.status(400).json({ error: "roleLocation cannot be empty" });
         return;
       }
+      nextRoleLocation = rl;
+    }
+    if (body.roleCode !== undefined || body.roleLocation !== undefined) {
+      if (!(await rolePairExists(nextRoleCode, nextRoleLocation))) {
+        res.status(400).json({
+          error: "roleCode and roleLocation do not reference an existing role",
+        });
+        return;
+      }
+    }
+    if (body.roleCode !== undefined) {
       fields.push(`role_code = $${p++}`);
-      values.push(rc);
+      values.push(nextRoleCode);
+    }
+    if (body.roleLocation !== undefined) {
+      fields.push(`role_location = $${p++}`);
+      values.push(nextRoleLocation);
     }
 
     if (body.quantity !== undefined) {
@@ -422,6 +459,7 @@ router.patch("/:id", async (req: Request, res: Response) => {
           site: full.site,
           areaProduzione: full.areaProduzione,
           roleCode: full.roleCode,
+          roleLocation: full.roleLocation,
           quantity: full.quantity,
           notes: full.notes,
           changedFields,

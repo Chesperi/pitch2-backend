@@ -116,6 +116,7 @@ function mapRowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWi
     id: row.a_id as number,
     eventId: String(row.a_event_id ?? ""),
     roleCode: String(row.a_role_code ?? ""),
+    roleLocation: String(row.a_role_location ?? ""),
     staffId: row.a_staff_id != null ? Number(row.a_staff_id) : null,
     status: row.a_status as AssignmentStatus,
     notes: row.a_notes as string | null,
@@ -135,7 +136,6 @@ function mapRowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWi
     staffCompany: row.s_company as string | null,
     staffFee: row.s_fee != null ? String(row.s_fee) : null,
     staffPlates: row.s_plates as string | null,
-    roleLocation: String(row.r_location ?? ""),
     roleDescription: row.r_description != null ? String(row.r_description) : null,
   };
 }
@@ -427,7 +427,7 @@ export async function runGenerateAssignmentsFromStandard(
     `SELECT ${ASSIGNMENT_EVENT_ROLE_SELECT}
      FROM assignments a
      JOIN events e ON e.id = a.event_id
-     JOIN roles r ON r.role_code = a.role_code
+     JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
      LEFT JOIN staff s ON s.id = a.staff_id
      WHERE a.event_id = $1
      ORDER BY e.date ASC NULLS LAST, e.ko_italy_time ASC NULLS LAST, a.id ASC`,

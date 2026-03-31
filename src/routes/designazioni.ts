@@ -18,6 +18,7 @@ type AssignmentRow = {
   a_id: number;
   a_event_id: string;
   a_role_code: string;
+  a_role_location: string;
   a_staff_id: number | null;
   a_status: string;
   a_notes: string | null;
@@ -96,7 +97,8 @@ function mapAssignmentsToEvents(rows: AssignmentRow[]): DesignazioniEmailEvent[]
 const router = Router();
 
 const selectCols = `
-  a.id as a_id, a.event_id as a_event_id, a.role_code as a_role_code, a.staff_id as a_staff_id,
+  a.id as a_id, a.event_id as a_event_id, a.role_code as a_role_code, a.role_location as a_role_location,
+  a.staff_id as a_staff_id,
   a.status as a_status, a.notes as a_notes, a.created_at as a_created_at, a.updated_at as a_updated_at,
   e.category as e_category, e.competition_name as e_competition_name, e.matchday as e_matchday,
   e.home_team_name_short as e_home_team_name_short, e.away_team_name_short as e_away_team_name_short,
@@ -124,7 +126,7 @@ router.get("/me", requirePitch2Session, async (req: Request, res) => {
       `SELECT ${selectCols}
        FROM assignments a
        JOIN events e ON e.id = a.event_id
-       JOIN roles r ON r.role_code = a.role_code
+       JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
        LEFT JOIN staff s ON s.id = a.staff_id
        WHERE a.staff_id = $1
        ORDER BY e.date ASC NULLS LAST, e.ko_italy_time ASC NULLS LAST, a.id ASC`,
@@ -137,6 +139,7 @@ router.get("/me", requirePitch2Session, async (req: Request, res) => {
         id: r.a_id,
         event_id: r.a_event_id,
         role_code: r.a_role_code,
+        role_location: r.a_role_location,
         staff_id: r.a_staff_id ?? null,
         fee: r.s_fee ?? null,
         location: r.r_location,
@@ -219,7 +222,7 @@ router.post("/send-person", async (req: Request, res) => {
       `SELECT ${selectCols}
        FROM assignments a
        JOIN events e ON e.id = a.event_id
-       JOIN roles r ON r.role_code = a.role_code
+       JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
        LEFT JOIN staff s ON s.id = a.staff_id
        WHERE a.id IN (${placeholders}) AND a.staff_id = $1`,
       [staffPk, ...assignmentIds]
@@ -309,7 +312,7 @@ router.post("/send-period", async (req: Request, res) => {
         `SELECT ${selectCols}
          FROM assignments a
          JOIN events e ON e.id = a.event_id
-         JOIN roles r ON r.role_code = a.role_code
+         JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
          LEFT JOIN staff s ON s.id = a.staff_id
          WHERE a.id IN (${placeholders}) AND a.staff_id = $1`,
         [staffPk, ...ids]

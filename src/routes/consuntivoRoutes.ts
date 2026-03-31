@@ -43,6 +43,12 @@ function parseOptionalRoleCode(raw: unknown): string | null {
   return s.length > 0 ? s : null;
 }
 
+function parseOptionalRoleLocation(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  const s = String(raw).trim().toUpperCase();
+  return s.length > 0 ? s : null;
+}
+
 function feeToNumber(fee: unknown): number {
   if (fee == null) return 0;
   const n = parseFloat(String(fee).replace(",", "."));
@@ -100,6 +106,14 @@ router.get("/", async (req: Request, res: Response) => {
       params.push(roleCode);
     }
 
+    const roleLocation = parseOptionalRoleLocation(
+      req.query.roleLocation ?? req.query.role_location
+    );
+    if (roleLocation != null) {
+      conditions.push(`a.role_location = $${p++}`);
+      params.push(roleLocation);
+    }
+
     const status = String(req.query.status ?? "").trim();
     if (status) {
       conditions.push(`a.status = $${p++}`);
@@ -127,7 +141,7 @@ router.get("/", async (req: Request, res: Response) => {
       FROM assignments a
       JOIN events e ON e.id = a.event_id
       JOIN staff s ON s.id = a.staff_id
-      JOIN roles r ON r.role_code = a.role_code
+      JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
       ${whereClause}
       ORDER BY e.date DESC NULLS LAST, e.ko_italy_time DESC NULLS LAST, e.id DESC, a.id DESC
     `;

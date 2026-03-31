@@ -40,10 +40,14 @@ function isValidEmail(s: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
-async function roleCodeExists(code: string): Promise<boolean> {
-  const r = await pool.query("SELECT 1 FROM roles WHERE role_code = $1 LIMIT 1", [
-    code,
-  ]);
+async function rolePairExists(
+  roleCode: string,
+  roleLocation: string
+): Promise<boolean> {
+  const r = await pool.query(
+    "SELECT 1 FROM roles WHERE role_code = $1 AND location = $2 LIMIT 1",
+    [roleCode, roleLocation]
+  );
   return (r.rowCount ?? 0) > 0;
 }
 
@@ -195,10 +199,6 @@ router.post("/", async (req: Request, res) => {
       res.status(400).json({ error: "defaultRoleCode is required" });
       return;
     }
-    if (!(await roleCodeExists(default_role_code))) {
-      res.status(400).json({ error: "defaultRoleCode does not match any role" });
-      return;
-    }
     if (!default_location) {
       res.status(400).json({ error: "defaultLocation is required" });
       return;
@@ -206,6 +206,18 @@ router.post("/", async (req: Request, res) => {
     if (!isAllowedDefaultLocation(default_location)) {
       res.status(400).json({
         error: `defaultLocation must be one of: ${ALLOWED_DEFAULT_LOCATIONS.join(", ")}`,
+      });
+      return;
+    }
+    if (
+      !(await rolePairExists(
+        default_role_code,
+        default_location.trim().toUpperCase()
+      ))
+    ) {
+      res.status(400).json({
+        error:
+          "defaultRoleCode and defaultLocation do not match any role (pair must exist in roles)",
       });
       return;
     }
@@ -329,10 +341,6 @@ router.patch("/:id", async (req: Request, res) => {
         res.status(400).json({ error: "defaultRoleCode cannot be empty" });
         return;
       }
-      if (!(await roleCodeExists(code))) {
-        res.status(400).json({ error: "defaultRoleCode does not match any role" });
-        return;
-      }
     }
     if (body.defaultLocation !== undefined) {
       const loc = String(body.defaultLocation ?? "").trim();
@@ -343,6 +351,30 @@ router.patch("/:id", async (req: Request, res) => {
       if (!isAllowedDefaultLocation(loc)) {
         res.status(400).json({
           error: `defaultLocation must be one of: ${ALLOWED_DEFAULT_LOCATIONS.join(", ")}`,
+        });
+        return;
+      }
+    }
+    if (body.defaultRoleCode !== undefined || body.defaultLocation !== undefined) {
+      const pairCode =
+        body.defaultRoleCode !== undefined
+          ? String(body.defaultRoleCode ?? "").trim()
+          : (beforeStaff.default_role_code ?? "").trim();
+      const pairLocRaw =
+        body.defaultLocation !== undefined
+          ? String(body.defaultLocation ?? "").trim()
+          : (beforeStaff.default_location ?? "").trim();
+      if (!pairCode || !pairLocRaw) {
+        res.status(400).json({
+          error:
+            "Impossibile validare il ruolo: servono defaultRoleCode e defaultLocation (aggiorna entrambi se manca uno dei due in anagrafica).",
+        });
+        return;
+      }
+      if (!(await rolePairExists(pairCode, pairLocRaw.toUpperCase()))) {
+        res.status(400).json({
+          error:
+            "defaultRoleCode e defaultLocation non corrispondono a nessuna riga in roles (coppia univoca).",
         });
         return;
       }
@@ -528,7 +560,7 @@ router.get("/:id/assignments", async (req: Request, res) => {
     const total = parseInt(countResult.rows[0]?.count ?? "0", 10);
 
     const itemsResult = await pool.query(
-      `SELECT a.id, a.event_id, a.role_code, a.staff_id, a.status, a.notes, a.created_at, a.updated_at,
+      `SELECT a.id, a.event_id, a.role_code, a.role_location, a.staff_id, a.status, a.notes, a.created_at, a.updated_at,
               e.id as e_id, e.category, e.competition_name, e.matchday,
               e.date as e_date, e.ko_italy_time as e_ko_italy_time,
               e.home_team_name_short, e.away_team_name_short, e.pre_duration_minutes,
@@ -549,6 +581,7 @@ router.get("/:id/assignments", async (req: Request, res) => {
           id: r.id as number,
           eventId: String(r.event_id ?? ""),
           roleCode: String(r.role_code ?? ""),
+          roleLocation: String(r.role_location ?? ""),
           staffId: r.staff_id != null ? Number(r.staff_id) : null,
           status: r.status as AssignmentStatus,
           notes: r.notes as string | null,

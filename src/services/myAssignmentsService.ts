@@ -131,7 +131,7 @@ export async function listMyAssignments(
        a.notes
      FROM assignments a
      INNER JOIN events e ON e.id = a.event_id
-     INNER JOIN roles r ON r.role_code = a.role_code
+     INNER JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
      WHERE a.staff_id = $1
      ORDER BY e.date ASC NULLS LAST, e.ko_italy_time ASC NULLS LAST, a.id ASC`,
     [staffPk]
@@ -169,7 +169,7 @@ export async function getMyAssignmentDetail(
        a.notes
      FROM assignments a
      INNER JOIN events e ON e.id = a.event_id
-     INNER JOIN roles r ON r.role_code = a.role_code
+     INNER JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
      WHERE a.id = $1 AND a.staff_id = $2`,
     [assignmentId, staffPk]
   );
@@ -191,7 +191,7 @@ export async function getMyAssignmentDetail(
        r.location AS role_location,
        a.status
      FROM assignments a
-     INNER JOIN roles r ON r.role_code = a.role_code
+     INNER JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
      LEFT JOIN staff s ON s.id = a.staff_id
      WHERE a.event_id = $1
      ORDER BY a.id ASC`,

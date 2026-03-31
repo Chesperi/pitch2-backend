@@ -6,6 +6,8 @@ export interface Assignment {
   id: number;
   eventId: string;
   roleCode: string;
+  /** Allineato a `roles.location`; coppia univoca con `roleCode`. */
+  roleLocation: string;
   staffId: number | null;
   status: AssignmentStatus;
   notes: string | null;
@@ -29,8 +31,6 @@ export interface AssignmentWithJoins extends Assignment {
   staffCompany: string | null;
   staffFee: string | null;
   staffPlates: string | null;
-  roleLocation: string;
-  /** Alias display: stesso valore di `roleCode` (da `roles.role_code`). */
   roleDescription: string | null;
 }
 
@@ -64,12 +64,12 @@ export interface StandardRequirement {
   site: string;
   areaProduzione: string;
   roleCode: string;
+  roleLocation: string;
   quantity: number;
   notes: string | null;
 }
 
 export interface StandardRequirementWithRole extends StandardRequirement {
-  roleLocation: string;
   roleDescription: string | null;
 }
 
