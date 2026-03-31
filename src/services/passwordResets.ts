@@ -5,13 +5,16 @@ import type { StaffId } from "../types/staffId";
 const TOKEN_BYTES = 40;
 const EXPIRY_HOURS = 1;
 
-export async function createPasswordResetToken(staffId: StaffId): Promise<string> {
+export async function createPasswordResetToken(
+  staffId: number,
+  email: string
+): Promise<string> {
   const token = randomBytes(TOKEN_BYTES).toString("hex");
   const expiresAt = new Date(Date.now() + EXPIRY_HOURS * 60 * 60 * 1000);
 
   await pool.query(
-    `INSERT INTO auth_password_resets (staff_id, token, expires_at) VALUES ($1, $2, $3)`,
-    [staffId, token, expiresAt]
+    `INSERT INTO auth_password_resets (staff_id, email, token, expires_at) VALUES ($1, $2, $3, $4)`,
+    [staffId, email, token, expiresAt]
   );
 
   return token;

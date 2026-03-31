@@ -1,8 +1,7 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../db";
 import { listAccreditationsByEventId } from "../services/accreditationsService";
-import type { StaffId } from "../types/staffId";
-import { isStaffId, normalizeStaffId } from "../types/staffId";
+import { resolveStaffDbIntegerId } from "../services/staffService";
 import type {
   AccreditationListItem,
   AccreditationWithStaff,
@@ -29,17 +28,21 @@ function toAccreditationListItem(a: AccreditationWithStaff): AccreditationListIt
 router.post("/", async (req: Request, res: Response) => {
   const { eventId, staffId, roleCode, areas, plates, notes } = req.body ?? {};
 
-  const parsedEventId = Number.parseInt(String(eventId), 10);
-  const staffIdRaw = typeof staffId === "string" ? staffId.trim() : String(staffId ?? "").trim();
-  const parsedStaffId: StaffId | null = isStaffId(staffIdRaw)
-    ? normalizeStaffId(staffIdRaw)
+  const parsedEventId =
+    eventId != null && String(eventId).trim() !== ""
+      ? String(eventId).trim()
+      : "";
+  const staffIdRaw =
+    typeof staffId === "string" ? staffId.trim() : String(staffId ?? "").trim();
+  const parsedStaffPk = staffIdRaw
+    ? await resolveStaffDbIntegerId(staffIdRaw)
     : null;
 
-  if (!Number.isFinite(parsedEventId) || parsedEventId < 1) {
+  if (!parsedEventId) {
     res.status(400).json({ error: "Invalid eventId" });
     return;
   }
-  if (!parsedStaffId) {
+  if (parsedStaffPk == null) {
     res.status(400).json({ error: "Invalid staffId" });
     return;
   }
@@ -55,7 +58,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     const stCheck = await pool.query(
       "SELECT 1 FROM staff WHERE id = $1 AND active = true",
-      [parsedStaffId]
+      [parsedStaffPk]
     );
     if (stCheck.rows.length === 0) {
       res.status(404).json({ error: "Staff not found" });
@@ -77,7 +80,7 @@ router.post("/", async (req: Request, res: Response) => {
     `;
     const result = await pool.query<{ id: number }>(insertSql, [
       parsedEventId,
-      parsedStaffId,
+      parsedStaffPk,
       roleCode != null && String(roleCode).trim() !== ""
         ? String(roleCode).trim()
         : null,
@@ -146,8 +149,8 @@ router.patch("/:id/deactivate", async (req: Request, res: Response) => {
 });
 
 router.get("/:eventId", async (req: Request, res: Response) => {
-  const eventId = Number.parseInt(req.params.eventId, 10);
-  if (!Number.isFinite(eventId) || eventId < 1) {
+  const eventId = String(req.params.eventId ?? "").trim();
+  if (!eventId) {
     res.status(400).json({ error: "Invalid eventId" });
     return;
   }

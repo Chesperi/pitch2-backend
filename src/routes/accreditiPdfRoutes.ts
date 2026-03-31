@@ -50,12 +50,22 @@ const HEADER_ROW_H = 12;
 const DATA_ROW_H = 14;
 
 type PdfEventRow = {
-  ko_italy: unknown;
+  date: unknown;
+  ko_italy_time: unknown;
   home_team_name_short: string | null;
   away_team_name_short: string | null;
-  venue_name: string | null;
+  facilities: string | null;
   competition_name: string | null;
 };
+
+function formatPdfKoItaly(date: unknown, koTime: unknown): string {
+  const d = date != null ? String(date).slice(0, 10) : "";
+  const t = koTime != null ? String(koTime).trim() : "";
+  const iso = d && t ? `${d}T${t}` : d || t;
+  if (!iso) return "";
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime()) ? iso : dt.toLocaleString("it-IT");
+}
 
 function getOwnerLogoPath(ownerCode: string): string | null {
   const base = path.join(process.cwd(), "assets");
@@ -112,17 +122,14 @@ function drawHeader(
   y += 12;
 
   doc.text(
-    `${row.venue_name ?? ""} - ${row.competition_name ?? ""}`,
+    `${row.facilities ?? ""} - ${row.competition_name ?? ""}`,
     MARGIN,
     y,
     { width: USABLE_W, align: "center" }
   );
   y += 12;
 
-  const ko =
-    row.ko_italy != null
-      ? new Date(row.ko_italy as string | number | Date).toLocaleString("it-IT")
-      : "";
+  const ko = formatPdfKoItaly(row.date, row.ko_italy_time);
   doc.text(ko, MARGIN, y, { width: USABLE_W, align: "center" });
   y += 10;
 
@@ -210,8 +217,8 @@ function drawAreaLegend(
 }
 
 router.get("/:eventId/pdf", async (req: Request, res: Response) => {
-  const eventId = Number.parseInt(req.params.eventId, 10);
-  if (!Number.isFinite(eventId) || eventId < 1) {
+  const eventId = String(req.params.eventId ?? "").trim();
+  if (!eventId) {
     res.status(400).json({ error: "Invalid eventId" });
     return;
   }
@@ -220,14 +227,15 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
 
   try {
     const ev = await pool.query<{
-      id: number;
-      ko_italy: unknown;
+      id: string;
+      date: unknown;
+      ko_italy_time: unknown;
       home_team_name_short: string | null;
       away_team_name_short: string | null;
-      venue_name: string | null;
+      facilities: string | null;
       competition_name: string | null;
     }>(
-      `SELECT id, ko_italy, home_team_name_short, away_team_name_short, venue_name, competition_name
+      `SELECT id, date, ko_italy_time, home_team_name_short, away_team_name_short, facilities, competition_name
        FROM events
        WHERE id = $1`,
       [eventId]

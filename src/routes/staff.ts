@@ -9,13 +9,24 @@ import { logAuditFromRequest } from "../services/auditLog";
 import type { AssignmentWithEvent, AssignmentStatus } from "../types";
 import { ensureSupabaseUserForStaff } from "../services/staffSupabase";
 import type { StaffId } from "../types/staffId";
-import { isStaffId, normalizeStaffId } from "../types/staffId";
+import { resolveStaffDbIntegerId } from "../services/staffService";
 
 const router = Router();
 
-function parseStaffRouteId(raw: string): StaffId | null {
+function combineEventKo(date: unknown, time: unknown): string | null {
+  const d = date != null ? String(date).slice(0, 10) : "";
+  const t = time != null ? String(time).trim() : "";
+  if (d && t) return `${d}T${t}`;
+  return d || t || null;
+}
+
+async function resolveStaffPkFromParam(raw: string): Promise<number | null> {
   const t = String(raw ?? "").trim();
-  return isStaffId(t) ? normalizeStaffId(t) : null;
+  if (/^\d+$/.test(t)) {
+    const n = parseInt(t, 10);
+    return n > 0 ? n : null;
+  }
+  return resolveStaffDbIntegerId(t);
 }
 
 /** Allineato a `roles.location` in `src/routes/roles.ts` (estendere se servono altre sedi). */
@@ -30,12 +41,14 @@ function isValidEmail(s: string): boolean {
 }
 
 async function roleCodeExists(code: string): Promise<boolean> {
-  const r = await pool.query("SELECT 1 FROM roles WHERE code = $1 LIMIT 1", [code]);
+  const r = await pool.query("SELECT 1 FROM roles WHERE role_code = $1 LIMIT 1", [
+    code,
+  ]);
   return (r.rowCount ?? 0) > 0;
 }
 
 export type StaffItem = {
-  id: StaffId;
+  id: number;
   surname: string;
   name: string;
   email: string | null;
@@ -43,7 +56,7 @@ export type StaffItem = {
   company: string | null;
   default_role_code: string | null;
   default_location: string | null;
-  fee: number | null;
+  fee: string | null;
   plates: string | null;
   user_level: string;
   active: boolean;
@@ -149,7 +162,10 @@ router.post("/", async (req: Request, res) => {
     const company = body.company != null ? String(body.company).trim() || null : null;
     const default_role_code = String(body.defaultRoleCode ?? "").trim();
     const default_location = String(body.defaultLocation ?? "").trim();
-    const fee = body.fee != null ? parseInt(String(body.fee), 10) : null;
+    const fee =
+      body.fee != null && String(body.fee).trim() !== ""
+        ? String(body.fee).trim()
+        : null;
     const plates = body.plates != null ? String(body.plates).trim() || null : null;
     let user_level: string;
     if (body.userLevel === undefined || body.userLevel === null) {
@@ -206,7 +222,7 @@ router.post("/", async (req: Request, res) => {
         company,
         default_role_code,
         default_location,
-        Number.isNaN(fee) ? null : fee,
+        fee,
         plates,
         user_level,
         active,
@@ -214,11 +230,10 @@ router.post("/", async (req: Request, res) => {
     );
 
     const staff = result.rows[0] as StaffItem;
-    staff.id = String(staff.id) as StaffId;
 
     try {
       await ensureSupabaseUserForStaff({
-        id: staff.id,
+        id: String(staff.id) as StaffId,
         email: staff.email,
         name: staff.name,
         surname: staff.surname,
@@ -259,76 +274,14 @@ router.post("/", async (req: Request, res) => {
 });
 
 /**
- * PATCH /api/staff/:id/finance-access — override accesso area economica (`allow` | `deny` | default `NULL`).
- */
-router.patch("/:id/finance-access", async (req: Request, res) => {
-  try {
-    if (!(await requirePageEdit(req, res, "master"))) return;
-    const id = parseStaffRouteId(req.params.id);
-    if (!id) {
-      res.status(400).json({ error: "Invalid staff id" });
-      return;
-    }
-
-    const raw = (req.body as { financeAccessOverride?: unknown })
-      .financeAccessOverride;
-
-    let override: string | null;
-    if (raw === undefined || raw === null) {
-      override = null;
-    } else if (raw === "allow" || raw === "deny") {
-      override = raw;
-    } else {
-      res.status(400).json({
-        error: 'financeAccessOverride must be "allow", "deny", or null',
-      });
-      return;
-    }
-
-    const result = await pool.query<{
-      id: string;
-      surname: string;
-      name: string;
-      email: string | null;
-      finance_access_override: string | null;
-    }>(
-      `UPDATE staff
-       SET finance_access_override = $2
-       WHERE id = $1
-       RETURNING id, surname, name, email, finance_access_override`,
-      [id, override]
-    );
-
-    if (result.rows.length === 0) {
-      res.status(404).json({ error: "Staff not found" });
-      return;
-    }
-
-    const row = result.rows[0];
-    res.status(200).json({
-      id: String(row.id) as StaffId,
-      surname: row.surname,
-      name: row.name,
-      email: row.email,
-      finance_access_override: row.finance_access_override,
-    });
-  } catch (err) {
-    console.error("PATCH /api/staff/:id/finance-access error:", err);
-    res.status(500).json({
-      error: err instanceof Error ? err.message : "Internal server error",
-    });
-  }
-});
-
-/**
  * PATCH /api/staff/:id — aggiorna parzialmente anagrafica staff.
  * Accetta un sottoinsieme dei campi di POST (camelCase); campi non mappati nel body vengono ignorati.
  */
 router.patch("/:id", async (req: Request, res) => {
   try {
     if (!(await requirePageEdit(req, res, "database"))) return;
-    const id = parseStaffRouteId(req.params.id);
-    if (!id) {
+    const staffPk = await resolveStaffPkFromParam(req.params.id);
+    if (staffPk == null) {
       res.status(400).json({ error: "Invalid staff id" });
       return;
     }
@@ -337,7 +290,7 @@ router.patch("/:id", async (req: Request, res) => {
       `SELECT id, surname, name, email, phone, company, default_role_code, default_location,
               fee, plates, user_level, active
        FROM staff WHERE id = $1`,
-      [id]
+      [staffPk]
     );
     if (currentResult.rows.length === 0) {
       res.status(404).json({ error: "Staff not found" });
@@ -426,9 +379,9 @@ router.patch("/:id", async (req: Request, res) => {
     for (const [col, key, val] of map) {
       if (val !== undefined) {
         if (key === "fee") {
-          const n = parseInt(String(val), 10);
+          const t = val === null || val === undefined ? "" : String(val).trim();
           fields.push(`${col} = $${paramIdx}`);
-          values.push(Number.isNaN(n) ? null : n);
+          values.push(t === "" ? null : t);
         } else if (key === "active") {
           fields.push(`${col} = $${paramIdx}`);
           values.push(val !== false);
@@ -452,13 +405,13 @@ router.patch("/:id", async (req: Request, res) => {
       const fullResult = await pool.query<StaffItem>(
         `SELECT id, surname, name, email, phone, company, default_role_code, default_location, fee, plates, user_level, active
          FROM staff WHERE id = $1`,
-        [id]
+        [staffPk]
       );
       res.json(fullResult.rows[0]);
       return;
     }
 
-    values.push(id);
+    values.push(staffPk);
     await pool.query(
       `UPDATE staff SET ${fields.join(", ")} WHERE id = $${paramIdx}`,
       values
@@ -467,7 +420,7 @@ router.patch("/:id", async (req: Request, res) => {
     const updatedResult = await pool.query<StaffItem>(
       `SELECT id, surname, name, email, phone, company, default_role_code, default_location, fee, plates, user_level, active
        FROM staff WHERE id = $1`,
-      [id]
+      [staffPk]
     );
     const staff = updatedResult.rows[0];
 
@@ -524,8 +477,8 @@ router.patch("/:id", async (req: Request, res) => {
 router.get("/:id/assignments", async (req: Request, res) => {
   try {
     if (!(await requirePageRead(req, res, "database"))) return;
-    const id = parseStaffRouteId(req.params.id);
-    if (!id) {
+    const staffPk = await resolveStaffPkFromParam(req.params.id);
+    if (staffPk == null) {
       res.status(400).json({ error: "Invalid staff id" });
       return;
     }
@@ -539,12 +492,11 @@ router.get("/:id/assignments", async (req: Request, res) => {
     );
     const offset = Math.max(parseInt(String(req.query.offset), 10) || 0, 0);
 
-    // Freelance view: only assignments the designatore has sent (SENT, CONFIRMED, REJECTED)
     const conditions: string[] = [
       "a.staff_id = $1",
       "a.status IN ('SENT', 'CONFIRMED', 'REJECTED')",
     ];
-    const params: unknown[] = [id];
+    const params: unknown[] = [staffPk];
     let paramIdx = 2;
 
     if (status) {
@@ -553,12 +505,12 @@ router.get("/:id/assignments", async (req: Request, res) => {
       paramIdx++;
     }
     if (from) {
-      conditions.push(`e.ko_italy >= $${paramIdx}::timestamptz`);
+      conditions.push(`e.date >= $${paramIdx}::date`);
       params.push(from);
       paramIdx++;
     }
     if (to) {
-      conditions.push(`e.ko_italy <= $${paramIdx}::timestamptz`);
+      conditions.push(`e.date <= $${paramIdx}::date`);
       params.push(to);
       paramIdx++;
     }
@@ -576,16 +528,16 @@ router.get("/:id/assignments", async (req: Request, res) => {
     const total = parseInt(countResult.rows[0]?.count ?? "0", 10);
 
     const itemsResult = await pool.query(
-      `SELECT a.id, a.event_id, a.role_id, a.staff_id, a.status, a.notes, a.created_at, a.updated_at,
-              e.id as e_id, e.external_match_id as e_external_match_id, e.category, e.competition_name,
-              e.competition_code, e.matchday, e.home_team_name_short, e.away_team_name_short,
-              e.venue_name, e.venue_city, e.venue_address, e.ko_italy, e.pre_duration_minutes,
-              e.standard_onsite, e.standard_cologno, e.location as e_area_produzione,
+      `SELECT a.id, a.event_id, a.role_code, a.staff_id, a.status, a.notes, a.created_at, a.updated_at,
+              e.id as e_id, e.category, e.competition_name, e.matchday,
+              e.date as e_date, e.ko_italy_time as e_ko_italy_time,
+              e.home_team_name_short, e.away_team_name_short, e.pre_duration_minutes,
+              e.standard_onsite, e.standard_cologno,
               e.show_name, e.rights_holder, e.facilities, e.studio, e.status as e_status
        FROM assignments a
        JOIN events e ON e.id = a.event_id
        ${whereClause}
-       ORDER BY e.ko_italy ASC NULLS LAST, a.id ASC
+       ORDER BY e.date ASC NULLS LAST, e.ko_italy_time ASC NULLS LAST, a.id ASC
        LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
       params
     );
@@ -595,37 +547,30 @@ router.get("/:id/assignments", async (req: Request, res) => {
       return {
         assignment: {
           id: r.id as number,
-          eventId: r.event_id as number,
-          roleId: r.role_id as number,
-          staffId:
-            r.staff_id != null ? String(r.staff_id) : null,
+          eventId: String(r.event_id ?? ""),
+          roleCode: String(r.role_code ?? ""),
+          staffId: r.staff_id != null ? Number(r.staff_id) : null,
           status: r.status as AssignmentStatus,
           notes: r.notes as string | null,
           createdAt: String(r.created_at),
           updatedAt: String(r.updated_at),
         },
         event: {
-          id: r.e_id as number,
-          externalMatchId: r.e_external_match_id != null ? String(r.e_external_match_id) : null,
+          id: String(r.e_id ?? ""),
           category: r.category as string,
           competitionName: r.competition_name as string,
-          competitionCode: r.competition_code as string | null,
           matchday: r.matchday as number | null,
           homeTeamNameShort: r.home_team_name_short as string | null,
           awayTeamNameShort: r.away_team_name_short as string | null,
-          venueName: r.venue_name as string | null,
-          venueCity: r.venue_city as string | null,
-          venueAddress: r.venue_address as string | null,
-          koItaly: r.ko_italy != null ? String(r.ko_italy) : null,
-          preDurationMinutes: r.pre_duration_minutes as number,
+          koItaly: combineEventKo(r.e_date, r.e_ko_italy_time),
+          preDurationMinutes: Number(r.pre_duration_minutes ?? 0),
           standardOnsite: r.standard_onsite as string | null,
           standardCologno: r.standard_cologno as string | null,
-          areaProduzione: r.e_area_produzione as string | null,
           showName: r.show_name as string | null,
           rightsHolder: r.rights_holder as string | null,
           facilities: r.facilities as string | null,
           studio: r.studio as string | null,
-          status: r.e_status as string,
+          status: String(r.e_status ?? ""),
         },
       };
     });

@@ -2,8 +2,6 @@ import { pool } from "../db";
 import type { StaffId } from "../types/staffId";
 import { normalizeStaffId } from "../types/staffId";
 
-export type StaffFinanceVisibility = "HIDDEN" | "VISIBLE";
-
 export type StaffProfileAuth = {
   id: StaffId;
   email: string | null;
@@ -11,7 +9,7 @@ export type StaffProfileAuth = {
   surname: string;
   user_level: string;
   active: boolean;
-  finance_visibility: StaffFinanceVisibility;
+  finance_visibility: boolean;
 };
 
 /**
@@ -22,19 +20,19 @@ export async function getStaffProfileById(
 ): Promise<StaffProfileAuth | null> {
   const key = normalizeStaffId(staffOrSupabaseId);
   const result = await pool.query<{
-    id: string;
+    id: number;
     email: string | null;
     name: string;
     surname: string;
     user_level: string;
     active: boolean;
-    finance_visibility: StaffFinanceVisibility;
+    finance_visibility: boolean;
   }>(
     `SELECT id, email, name, surname, user_level, active, finance_visibility
      FROM staff
      WHERE active = true
        AND (
-         LOWER(TRIM(id::text)) = $1
+         TRIM(id::text) = $1
          OR (
            supabase_id IS NOT NULL
            AND LOWER(TRIM(supabase_id::text)) = $1
@@ -54,6 +52,25 @@ export async function getStaffProfileById(
     surname: row.surname,
     user_level: row.user_level,
     active: row.active,
-    finance_visibility: row.finance_visibility,
+    finance_visibility: Boolean(row.finance_visibility),
   };
+}
+
+/** `assignments.staff_id` è INTEGER: risolve sessione (UUID supabase o id numerico) in PK staff. */
+export async function resolveStaffDbIntegerId(sessionOrKey: string): Promise<number | null> {
+  const key = normalizeStaffId(sessionOrKey);
+  const result = await pool.query<{ id: number }>(
+    `SELECT id FROM staff
+     WHERE active = true
+       AND (
+         TRIM(id::text) = $1
+         OR (
+           supabase_id IS NOT NULL
+           AND LOWER(TRIM(supabase_id::text)) = $1
+         )
+       )
+     LIMIT 1`,
+    [key]
+  );
+  return result.rows[0]?.id ?? null;
 }

@@ -19,23 +19,32 @@ function koItalyToIso(v: unknown): string | null {
   return String(v);
 }
 
+function combineEventDateTime(date: unknown, koTime: unknown): string | null {
+  const d = date != null ? String(date).slice(0, 10) : "";
+  const t = koTime != null ? String(koTime).trim() : "";
+  if (!d && !t) return null;
+  if (d && t) return `${d}T${t}`;
+  return d || t || null;
+}
+
 router.get("/:eventId/export-meta", async (req: Request, res: Response) => {
-  const eventId = Number.parseInt(req.params.eventId, 10);
-  if (!Number.isFinite(eventId) || eventId < 1) {
+  const eventId = String(req.params.eventId ?? "").trim();
+  if (!eventId) {
     res.status(400).json({ error: "Invalid eventId" });
     return;
   }
 
   try {
     const ev = await pool.query<{
-      id: number;
-      ko_italy: unknown;
+      id: string;
+      date: unknown;
+      ko_italy_time: unknown;
       home_team_name_short: string | null;
       away_team_name_short: string | null;
-      venue_name: string | null;
+      facilities: string | null;
       competition_name: string | null;
     }>(
-      `SELECT id, ko_italy, home_team_name_short, away_team_name_short, venue_name, competition_name
+      `SELECT id, date, ko_italy_time, home_team_name_short, away_team_name_short, facilities, competition_name
        FROM events
        WHERE id = $1`,
       [eventId]
@@ -69,10 +78,10 @@ router.get("/:eventId/export-meta", async (req: Request, res: Response) => {
 
     const event: AccreditationExportEventMeta = {
       eventId: row.id,
-      koItaly: koItalyToIso(row.ko_italy),
+      koItaly: koItalyToIso(combineEventDateTime(row.date, row.ko_italy_time)),
       homeTeam: row.home_team_name_short,
       awayTeam: row.away_team_name_short,
-      stadiumName: row.venue_name,
+      stadiumName: row.facilities,
       competitionName: row.competition_name,
       ownerCode,
     };

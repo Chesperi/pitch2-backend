@@ -16,23 +16,33 @@ function sanitizeSheetName(raw: string): string {
   return (t.length > 0 ? t : "ACCREDITI").substring(0, 31);
 }
 
+function formatXlsxKo(date: unknown, koTime: unknown): string {
+  const d = date != null ? String(date).slice(0, 10) : "";
+  const t = koTime != null ? String(koTime).trim() : "";
+  const iso = d && t ? `${d}T${t}` : d || t;
+  if (!iso) return "";
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime()) ? iso : dt.toLocaleString("it-IT");
+}
+
 router.get("/:eventId/export-xlsx", async (req: Request, res: Response) => {
-  const eventId = Number.parseInt(req.params.eventId, 10);
-  if (!Number.isFinite(eventId) || eventId < 1) {
+  const eventId = String(req.params.eventId ?? "").trim();
+  if (!eventId) {
     res.status(400).json({ error: "Invalid eventId" });
     return;
   }
 
   try {
     const ev = await pool.query<{
-      id: number;
-      ko_italy: unknown;
+      id: string;
+      date: unknown;
+      ko_italy_time: unknown;
       home_team_name_short: string | null;
       away_team_name_short: string | null;
-      venue_name: string | null;
+      facilities: string | null;
       competition_name: string | null;
     }>(
-      `SELECT id, ko_italy, home_team_name_short, away_team_name_short, venue_name, competition_name
+      `SELECT id, date, ko_italy_time, home_team_name_short, away_team_name_short, facilities, competition_name
        FROM events
        WHERE id = $1`,
       [eventId]
@@ -90,11 +100,8 @@ router.get("/:eventId/export-xlsx", async (req: Request, res: Response) => {
     const matchTitle = `${row.home_team_name_short ?? ""} - ${
       row.away_team_name_short ?? ""
     }`;
-    const venueLine = `${row.venue_name ?? ""} - ${row.competition_name ?? ""}`;
-    const ko =
-      row.ko_italy != null
-        ? new Date(row.ko_italy as string | number | Date).toLocaleString("it-IT")
-        : "";
+    const venueLine = `${row.facilities ?? ""} - ${row.competition_name ?? ""}`;
+    const ko = formatXlsxKo(row.date, row.ko_italy_time);
 
     worksheet.mergeCells("A1:I1");
     worksheet.getCell("A1").value = "LISTA PERSONALE DA ACCREDITARE";

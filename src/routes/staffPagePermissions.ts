@@ -4,8 +4,6 @@ import {
   requirePageEdit,
   requirePageRead,
 } from "../middleware/requirePageAccess";
-import type { StaffId } from "../types/staffId";
-import { isStaffId, normalizeStaffId } from "../types/staffId";
 
 const router = Router();
 
@@ -27,7 +25,7 @@ export type PageKey = (typeof PAGE_KEYS)[number];
 export type AccessLevel = "none" | "view" | "edit";
 
 export type StaffPermissionsRow = {
-  staffId: StaffId;
+  staffId: number;
   name: string;
   email: string;
   permissions: {
@@ -54,7 +52,7 @@ router.get("/", async (_req: Request, res: Response) => {
   try {
     if (!(await requirePageRead(_req, res, "master"))) return;
     const staffResult = await pool.query<{
-      id: string;
+      id: number;
       surname: string;
       name: string;
       email: string | null;
@@ -71,23 +69,23 @@ router.get("/", async (_req: Request, res: Response) => {
       return;
     }
 
-    const ids = staffRows.map((s) => normalizeStaffId(String(s.id)));
+    const ids = staffRows.map((s) => Number(s.id));
     const permResult = await pool.query<{
-      staff_id: string;
+      staff_id: number;
       page_key: string;
       access_level: string;
     }>(
       `SELECT staff_id, page_key, access_level
        FROM staff_page_permissions
-       WHERE staff_id = ANY($1::uuid[])`,
+       WHERE staff_id = ANY($1::int[])`,
       [ids]
     );
 
-    const permMap = new Map<string, Map<string, AccessLevel>>();
+    const permMap = new Map<number, Map<string, AccessLevel>>();
     for (const r of permResult.rows) {
       if (!isAccessLevel(r.access_level)) continue;
       if (!isPageKey(r.page_key)) continue;
-      const sid = normalizeStaffId(String(r.staff_id));
+      const sid = Number(r.staff_id);
       let m = permMap.get(sid);
       if (!m) {
         m = new Map();
@@ -97,7 +95,7 @@ router.get("/", async (_req: Request, res: Response) => {
     }
 
     const items: StaffPermissionsRow[] = staffRows.map((s) => {
-      const sid = normalizeStaffId(String(s.id));
+      const sid = Number(s.id);
       const byPage = permMap.get(sid) ?? new Map();
       const permissions = PAGE_KEYS.map((pageKey) => ({
         pageKey,
@@ -105,7 +103,7 @@ router.get("/", async (_req: Request, res: Response) => {
       }));
       const fullName = `${s.surname} ${s.name}`.trim();
       return {
-        staffId: sid as StaffId,
+        staffId: sid,
         name: fullName,
         email: s.email ?? "",
         permissions,
@@ -127,15 +125,16 @@ router.patch("/", async (req: Request, res: Response) => {
     const pageKeyRaw = body.pageKey;
     const accessLevelRaw = body.accessLevel;
 
-    const staffIdStr =
-      typeof staffIdRaw === "string"
-        ? staffIdRaw.trim()
-        : String(staffIdRaw ?? "").trim();
-    if (!isStaffId(staffIdStr)) {
-      res.status(400).json({ error: "staffId must be a staff UUID" });
+    const staffIdNum =
+      typeof staffIdRaw === "number" && Number.isInteger(staffIdRaw) && staffIdRaw > 0
+        ? staffIdRaw
+        : typeof staffIdRaw === "string" && /^\d+$/.test(staffIdRaw.trim())
+          ? parseInt(staffIdRaw.trim(), 10)
+          : NaN;
+    if (!Number.isFinite(staffIdNum) || staffIdNum < 1) {
+      res.status(400).json({ error: "staffId must be a positive integer staff primary key" });
       return;
     }
-    const staffId = normalizeStaffId(staffIdStr);
 
     const pageKey =
       typeof pageKeyRaw === "string" ? pageKeyRaw.trim() : "";
@@ -158,7 +157,7 @@ router.patch("/", async (req: Request, res: Response) => {
     }
 
     const staffCheck = await pool.query("SELECT 1 FROM staff WHERE id = $1", [
-      staffId,
+      staffIdNum,
     ]);
     if (staffCheck.rowCount === 0) {
       res.status(404).json({ error: "Staff not found" });
@@ -169,7 +168,7 @@ router.patch("/", async (req: Request, res: Response) => {
       await pool.query(
         `DELETE FROM staff_page_permissions
          WHERE staff_id = $1 AND page_key = $2`,
-        [staffId, pageKey]
+        [staffIdNum, pageKey]
       );
     } else {
       await pool.query(
@@ -179,7 +178,7 @@ router.patch("/", async (req: Request, res: Response) => {
          DO UPDATE SET
            access_level = EXCLUDED.access_level,
            updated_at = now()`,
-        [staffId, pageKey, accessLevel]
+        [staffIdNum, pageKey, accessLevel]
       );
     }
 

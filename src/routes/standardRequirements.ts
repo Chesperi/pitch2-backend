@@ -15,7 +15,7 @@ type StandardRequirementBody = {
   standardCologno?: string;
   site?: string;
   areaProduzione?: string | null;
-  roleId?: number;
+  roleCode?: string;
   quantity?: number;
   notes?: string | null;
 };
@@ -33,13 +33,12 @@ function standardChangedFields(
   if (before.areaProduzione !== after.areaProduzione) {
     ch.push("areaProduzione");
   }
-  if (before.roleId !== after.roleId) ch.push("roleId");
+  if (before.roleCode !== after.roleCode) ch.push("roleCode");
   if (before.quantity !== after.quantity) ch.push("quantity");
   if ((before.notes ?? null) !== (after.notes ?? null)) ch.push("notes");
   return ch;
 }
 
-/** Allowlist `site` (dominio produzione); allineare ai valori già in uso nel DB. */
 const ALLOWED_STANDARD_SITES = [
   "STADIO",
   "COLOGNO",
@@ -80,23 +79,24 @@ function rowToStandardRequirementWithRole(
     standardCologno: row.standard_cologno as string,
     site: row.site as string,
     areaProduzione: row.area_produzione as string,
-    roleId: row.role_id as number,
+    roleCode: row.role_code as string,
     quantity: row.quantity as number,
     notes: row.notes as string | null,
-    roleCode: row.role_code as string,
-    roleName: row.role_name as string,
     roleLocation: row.role_location as string,
+    roleDescription: row.role_description != null ? String(row.role_description) : null,
   };
 }
 
 const SELECT_COLS = `
   sr.id, sr.standard_onsite, sr.standard_cologno, sr.site, sr.area_produzione,
-  sr.role_id, sr.quantity, sr.notes,
-  r.code as role_code, r.name as role_name, r.location as role_location
+  sr.role_code, sr.quantity, sr.notes,
+  r.location as role_location, r.description as role_description
 `;
 
-async function roleExists(roleId: number): Promise<boolean> {
-  const r = await pool.query("SELECT 1 FROM roles WHERE id = $1", [roleId]);
+async function roleCodeExists(roleCode: string): Promise<boolean> {
+  const r = await pool.query("SELECT 1 FROM roles WHERE role_code = $1", [
+    roleCode,
+  ]);
   return r.rowCount != null && r.rowCount > 0;
 }
 
@@ -106,7 +106,7 @@ async function fetchRequirementWithRoleById(
   const result = await pool.query(
     `SELECT ${SELECT_COLS}
      FROM standard_requirements sr
-     JOIN roles r ON r.id = sr.role_id
+     JOIN roles r ON r.role_code = sr.role_code
      WHERE sr.id = $1`,
     [id]
   );
@@ -138,9 +138,6 @@ function parseAndValidateSite(
   return { ok: true, value: v };
 }
 
-// GET /api/standard-requirements
-// Con filtri: standardOnsite, standardCologno (obbligatori per filtro), site (opzionale)
-// Senza filtri: restituisce tutti (per pagina Database), con paginazione
 router.get("/", async (req: Request, res: Response) => {
   try {
     if (!(await requirePageRead(req, res, "database"))) return;
@@ -184,7 +181,8 @@ router.get("/", async (req: Request, res: Response) => {
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const countResult = await pool.query<{ count: string }>(
-      `SELECT COUNT(*)::int as count FROM standard_requirements sr JOIN roles r ON r.id = sr.role_id ${whereClause}`,
+      `SELECT COUNT(*)::int as count FROM standard_requirements sr
+       JOIN roles r ON r.role_code = sr.role_code ${whereClause}`,
       params
     );
     const total = parseInt(countResult.rows[0]?.count ?? "0", 10);
@@ -193,9 +191,9 @@ router.get("/", async (req: Request, res: Response) => {
     const result = await pool.query(
       `SELECT ${SELECT_COLS}
        FROM standard_requirements sr
-       JOIN roles r ON r.id = sr.role_id
+       JOIN roles r ON r.role_code = sr.role_code
        ${whereClause}
-       ORDER BY sr.standard_onsite, sr.standard_cologno, sr.site, sr.area_produzione, r.code
+       ORDER BY sr.standard_onsite, sr.standard_cologno, sr.site, sr.area_produzione, sr.role_code
        LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
       params
     );
@@ -235,16 +233,14 @@ router.post("/", async (req: Request, res: Response) => {
       return;
     }
 
-    const rid =
-      typeof body.roleId === "number"
-        ? body.roleId
-        : parseInt(String(body.roleId), 10);
-    if (!Number.isFinite(rid) || rid < 1) {
-      res.status(400).json({ error: "roleId is required and must be a positive integer" });
+    const roleCode =
+      typeof body.roleCode === "string" ? body.roleCode.trim() : "";
+    if (!roleCode) {
+      res.status(400).json({ error: "roleCode is required" });
       return;
     }
-    if (!(await roleExists(rid))) {
-      res.status(400).json({ error: "roleId does not reference an existing role" });
+    if (!(await roleCodeExists(roleCode))) {
+      res.status(400).json({ error: "roleCode does not reference an existing role" });
       return;
     }
 
@@ -263,10 +259,10 @@ router.post("/", async (req: Request, res: Response) => {
 
     const insert = await pool.query<{ id: number }>(
       `INSERT INTO standard_requirements
-        (standard_onsite, standard_cologno, site, area_produzione, role_id, quantity, notes)
+        (standard_onsite, standard_cologno, site, area_produzione, role_code, quantity, notes)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id`,
-      [onsite, cologno, siteParsed.value, area, rid, quantity, notes]
+      [onsite, cologno, siteParsed.value, area, roleCode, quantity, notes]
     );
 
     const newId = insert.rows[0]?.id;
@@ -293,7 +289,6 @@ router.post("/", async (req: Request, res: Response) => {
         standardCologno: full.standardCologno,
         site: full.site,
         areaProduzione: full.areaProduzione,
-        roleId: full.roleId,
         roleCode: full.roleCode,
         quantity: full.quantity,
         notes: full.notes,
@@ -370,21 +365,18 @@ router.patch("/:id", async (req: Request, res: Response) => {
       values.push(normalizeAreaProduzione(body.areaProduzione));
     }
 
-    if (body.roleId !== undefined) {
-      const rid =
-        typeof body.roleId === "number"
-          ? body.roleId
-          : parseInt(String(body.roleId), 10);
-      if (!Number.isFinite(rid) || rid < 1) {
-        res.status(400).json({ error: "roleId must be a positive integer" });
+    if (body.roleCode !== undefined) {
+      const rc = typeof body.roleCode === "string" ? body.roleCode.trim() : "";
+      if (!rc) {
+        res.status(400).json({ error: "roleCode cannot be empty" });
         return;
       }
-      if (!(await roleExists(rid))) {
-        res.status(400).json({ error: "roleId does not reference an existing role" });
+      if (!(await roleCodeExists(rc))) {
+        res.status(400).json({ error: "roleCode does not reference an existing role" });
         return;
       }
-      fields.push(`role_id = $${p++}`);
-      values.push(rid);
+      fields.push(`role_code = $${p++}`);
+      values.push(rc);
     }
 
     if (body.quantity !== undefined) {
@@ -429,7 +421,6 @@ router.patch("/:id", async (req: Request, res: Response) => {
           standardCologno: full.standardCologno,
           site: full.site,
           areaProduzione: full.areaProduzione,
-          roleId: full.roleId,
           roleCode: full.roleCode,
           quantity: full.quantity,
           notes: full.notes,

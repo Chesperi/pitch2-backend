@@ -9,17 +9,15 @@ import { logAuditFromRequest } from "../services/auditLog";
 
 const router = Router();
 
-/** Shape JSON di GET/POST/PATCH: colonne DB `code` / `name` / `location` / … */
+/** Risposta API: `code`/`name` sono alias di `role_code`/`description` per compatibilità client. */
 export type Role = {
   id: number;
   code: string;
   name: string;
   location: string;
   description: string | null;
-  active: boolean;
 };
 
-/** Dominio `roles.location` allineato ai valori usati in anagrafica (estendere se servono altre sedi). */
 const ALLOWED_LOCATIONS = ["STADIO", "COLOGNO", "LEEDS", "REMOTE"] as const;
 
 type AllowedLocation = (typeof ALLOWED_LOCATIONS)[number];
@@ -33,7 +31,6 @@ type RoleBody = {
   name?: string;
   location?: string;
   description?: string | null;
-  active?: boolean;
 };
 
 function normalizeDescription(
@@ -44,6 +41,22 @@ function normalizeDescription(
   return t === "" ? null : t;
 }
 
+function mapDbRowToRole(row: {
+  id: number;
+  role_code: string;
+  location: string;
+  description: string | null;
+}): Role {
+  const desc = row.description;
+  return {
+    id: row.id,
+    code: row.role_code,
+    name: desc?.trim() ? desc : row.role_code,
+    location: row.location,
+    description: desc,
+  };
+}
+
 function roleChangedFields(before: Role, after: Role): string[] {
   const ch: string[] = [];
   if (before.code !== after.code) ch.push("roleCode");
@@ -52,19 +65,23 @@ function roleChangedFields(before: Role, after: Role): string[] {
   if ((before.description ?? null) !== (after.description ?? null)) {
     ch.push("description");
   }
-  if (before.active !== after.active) ch.push("active");
   return ch;
 }
 
 router.get("/", async (_req, res) => {
   try {
     if (!(await requirePageRead(_req, res, "database"))) return;
-    const result = await pool.query<Role>(
-      `SELECT id, code, name, location, description, active
+    const result = await pool.query<{
+      id: number;
+      role_code: string;
+      location: string;
+      description: string | null;
+    }>(
+      `SELECT id, role_code, location, description
        FROM roles
-       ORDER BY name ASC, location ASC`
+       ORDER BY description ASC NULLS LAST, role_code ASC, location ASC`
     );
-    res.json(result.rows);
+    res.json(result.rows.map(mapDbRowToRole));
   } catch (err) {
     console.error("GET /api/roles error:", err);
     res.status(500).json({
@@ -93,18 +110,23 @@ router.post("/", async (req: Request, res: Response) => {
       return;
     }
 
-    const description = normalizeDescription(body.description);
-    const active = body.active === false ? false : true;
-    const name =
-      typeof body.name === "string" && body.name.trim()
-        ? body.name.trim()
-        : trimmedRoleCode;
+    const fromName =
+      typeof body.name === "string" && body.name.trim() ? body.name.trim() : null;
+    const description =
+      body.description !== undefined
+        ? normalizeDescription(body.description)
+        : fromName;
 
-    const result = await pool.query<Role>(
-      `INSERT INTO roles (code, name, location, description, active)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, code, name, location, description, active`,
-      [trimmedRoleCode, name, locRaw, description, active]
+    const result = await pool.query<{
+      id: number;
+      role_code: string;
+      location: string;
+      description: string | null;
+    }>(
+      `INSERT INTO roles (role_code, location, description)
+       VALUES ($1, $2, $3)
+       RETURNING id, role_code, location, description`,
+      [trimmedRoleCode, locRaw, description]
     );
 
     const row = result.rows[0];
@@ -112,6 +134,8 @@ router.post("/", async (req: Request, res: Response) => {
       res.status(500).json({ error: "Insert returned no row" });
       return;
     }
+
+    const apiRow = mapDbRowToRole(row);
 
     const session = getCurrentSession(req);
     void logAuditFromRequest(req, {
@@ -121,15 +145,14 @@ router.post("/", async (req: Request, res: Response) => {
       entityId: String(row.id),
       action: "create",
       metadata: {
-        code: row.code,
-        name: row.name,
-        location: row.location,
-        description: row.description,
-        active: row.active,
+        code: apiRow.code,
+        name: apiRow.name,
+        location: apiRow.location,
+        description: apiRow.description,
       },
     });
 
-    res.status(201).json(row);
+    res.status(201).json(apiRow);
   } catch (err: unknown) {
     const pg = err as { code?: string };
     if (pg.code === "23505") {
@@ -152,15 +175,19 @@ router.patch("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    const existing = await pool.query<Role>(
-      `SELECT id, code, name, location, description, active FROM roles WHERE id = $1`,
-      [id]
-    );
+    const existing = await pool.query<{
+      id: number;
+      role_code: string;
+      location: string;
+      description: string | null;
+    }>(`SELECT id, role_code, location, description FROM roles WHERE id = $1`, [
+      id,
+    ]);
     if (existing.rows.length === 0) {
       res.status(404).json({ error: "Role not found" });
       return;
     }
-    const before = existing.rows[0];
+    const before = mapDbRowToRole(existing.rows[0]);
 
     const body = req.body as RoleBody;
     const fields: string[] = [];
@@ -174,7 +201,7 @@ router.patch("/:id", async (req: Request, res: Response) => {
         res.status(400).json({ error: "roleCode cannot be empty" });
         return;
       }
-      fields.push(`code = $${p++}`);
+      fields.push(`role_code = $${p++}`);
       values.push(t);
     }
 
@@ -184,7 +211,7 @@ router.patch("/:id", async (req: Request, res: Response) => {
         res.status(400).json({ error: "name cannot be empty when provided" });
         return;
       }
-      fields.push(`name = $${p++}`);
+      fields.push(`description = $${p++}`);
       values.push(t);
     }
 
@@ -208,23 +235,19 @@ router.patch("/:id", async (req: Request, res: Response) => {
       values.push(normalizeDescription(body.description));
     }
 
-    if (body.active !== undefined) {
-      if (typeof body.active !== "boolean") {
-        res.status(400).json({ error: "active must be a boolean" });
-        return;
-      }
-      fields.push(`active = $${p++}`);
-      values.push(body.active);
-    }
-
     if (fields.length === 0) {
       res.status(400).json({ error: "No fields to update" });
       return;
     }
 
     values.push(id);
-    const result = await pool.query<Role>(
-      `UPDATE roles SET ${fields.join(", ")} WHERE id = $${p} RETURNING id, code, name, location, description, active`,
+    const result = await pool.query<{
+      id: number;
+      role_code: string;
+      location: string;
+      description: string | null;
+    }>(
+      `UPDATE roles SET ${fields.join(", ")} WHERE id = $${p} RETURNING id, role_code, location, description`,
       values
     );
 
@@ -233,7 +256,7 @@ router.patch("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    const after = result.rows[0];
+    const after = mapDbRowToRole(result.rows[0]);
     const changedFields = roleChangedFields(before, after);
     if (changedFields.length > 0) {
       const session = getCurrentSession(req);
@@ -248,7 +271,6 @@ router.patch("/:id", async (req: Request, res: Response) => {
           name: after.name,
           location: after.location,
           description: after.description,
-          active: after.active,
           changedFields,
         },
       });

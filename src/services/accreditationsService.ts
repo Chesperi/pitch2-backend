@@ -16,7 +16,7 @@ function toIsoDateOnly(v: unknown): string | null {
 }
 
 export async function listAccreditationsByEventId(
-  eventId: number
+  eventId: string
 ): Promise<AccreditationWithStaff[]> {
   const sql = `
     SELECT
@@ -45,7 +45,7 @@ export async function listAccreditationsByEventId(
   `;
   const result = await pool.query<{
     id: number;
-    event_id: number;
+    event_id: string;
     staff_id: string;
     role_code: string | null;
     areas: string | null;
@@ -65,7 +65,7 @@ export async function listAccreditationsByEventId(
 
   return result.rows.map((row) => ({
     id: row.id,
-    eventId: row.event_id,
+    eventId: String(row.event_id),
     staffId: String(row.staff_id) as StaffId,
     roleCode: row.role_code,
     areas: row.areas,

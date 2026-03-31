@@ -1,17 +1,16 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../db";
 import type { StaffId } from "../types/staffId";
-import { isStaffId, normalizeStaffId } from "../types/staffId";
+import { resolveStaffDbIntegerId } from "../services/staffService";
 
 const router = Router();
 
 export type ConsuntivoRow = {
-  eventId: number;
+  eventId: string;
   eventDate: string | null;
   matchday: number | null;
   staffId: StaffId;
   staffName: string;
-  roleId: number;
   roleCode: string;
   roleName: string;
   location: string | null;
@@ -25,46 +24,40 @@ export type ConsuntivoResponse = {
   totalAmount: number;
 };
 
-/** `from`: inizio giornata UTC se solo `yyyy-mm-dd`, altrimenti `Date` da ISO. */
-function parseFromInstant(raw: string | undefined): Date | null {
-  if (raw === undefined || raw === null) return null;
-  const t = String(raw).trim();
-  if (!t) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
-    const [y, mo, d] = t.split("-").map(Number);
-    const dt = new Date(Date.UTC(y, mo - 1, d, 0, 0, 0, 0));
-    return Number.isNaN(dt.getTime()) ? null : dt;
-  }
-  const dt = new Date(t);
-  return Number.isNaN(dt.getTime()) ? null : dt;
-}
-
-/** `to`: fine giornata UTC se solo `yyyy-mm-dd`, altrimenti `Date` da ISO. */
-function parseToInstant(raw: string | undefined): Date | null {
-  if (raw === undefined || raw === null) return null;
-  const t = String(raw).trim();
-  if (!t) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
-    const [y, mo, d] = t.split("-").map(Number);
-    const dt = new Date(Date.UTC(y, mo - 1, d, 23, 59, 59, 999));
-    return Number.isNaN(dt.getTime()) ? null : dt;
-  }
-  const dt = new Date(t);
-  return Number.isNaN(dt.getTime()) ? null : dt;
-}
-
-function parseOptionalPositiveInt(raw: unknown): number | null {
-  if (raw === undefined || raw === null) return null;
-  const n = parseInt(String(raw).trim(), 10);
-  if (!Number.isFinite(n) || n < 1) return null;
-  return n;
-}
-
-function parseOptionalStaffId(raw: unknown): StaffId | null {
+function parseOptionalEventId(raw: unknown): string | null {
   if (raw === undefined || raw === null) return null;
   const s = String(raw).trim();
-  if (!isStaffId(s)) return null;
-  return normalizeStaffId(s);
+  return s.length > 0 ? s : null;
+}
+
+function parseOptionalDate(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  const t = String(raw).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  return t;
+}
+
+function parseOptionalRoleCode(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  const s = String(raw).trim();
+  return s.length > 0 ? s : null;
+}
+
+function feeToNumber(fee: unknown): number {
+  if (fee == null) return 0;
+  const n = parseFloat(String(fee).replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function combineEventDate(
+  date: unknown,
+  koTime: unknown
+): string | null {
+  const d = date != null ? String(date).slice(0, 10) : "";
+  const t = koTime != null ? String(koTime).trim() : "";
+  if (!d && !t) return null;
+  if (d && t) return `${d}T${t}`;
+  return d || t || null;
 }
 
 router.get("/", async (req: Request, res: Response) => {
@@ -73,33 +66,38 @@ router.get("/", async (req: Request, res: Response) => {
     const params: unknown[] = [];
     let p = 1;
 
-    const fromD = parseFromInstant(req.query.from as string | undefined);
-    const toD = parseToInstant(req.query.to as string | undefined);
+    const fromD = parseOptionalDate(req.query.from);
+    const toD = parseOptionalDate(req.query.to);
     if (fromD) {
-      conditions.push(`e.ko_italy >= $${p++}`);
+      conditions.push(`e.date >= $${p++}::date`);
       params.push(fromD);
     }
     if (toD) {
-      conditions.push(`e.ko_italy <= $${p++}`);
+      conditions.push(`e.date <= $${p++}::date`);
       params.push(toD);
     }
 
-    const eventId = parseOptionalPositiveInt(req.query.eventId);
+    const eventId = parseOptionalEventId(req.query.eventId);
     if (eventId != null) {
       conditions.push(`a.event_id = $${p++}`);
       params.push(eventId);
     }
 
-    const staffId = parseOptionalStaffId(req.query.staffId);
-    if (staffId != null) {
+    const staffKey = req.query.staffId != null ? String(req.query.staffId).trim() : "";
+    if (staffKey) {
+      const staffPk = await resolveStaffDbIntegerId(staffKey);
+      if (staffPk == null) {
+        res.status(400).json({ error: "Invalid staffId" });
+        return;
+      }
       conditions.push(`a.staff_id = $${p++}`);
-      params.push(staffId);
+      params.push(staffPk);
     }
 
-    const roleId = parseOptionalPositiveInt(req.query.roleId);
-    if (roleId != null) {
-      conditions.push(`a.role_id = $${p++}`);
-      params.push(roleId);
+    const roleCode = parseOptionalRoleCode(req.query.roleCode ?? req.query.roleId);
+    if (roleCode != null) {
+      conditions.push(`a.role_code = $${p++}`);
+      params.push(roleCode);
     }
 
     const status = String(req.query.status ?? "").trim();
@@ -115,61 +113,56 @@ router.get("/", async (req: Request, res: Response) => {
     const sql = `
       SELECT
         a.event_id AS event_id,
-        e.ko_italy AS event_ko_italy,
+        e.date AS event_date,
+        e.ko_italy_time AS event_ko_italy_time,
         e.matchday AS matchday,
         a.staff_id AS staff_id,
         s.surname AS staff_surname,
         s.name AS staff_name,
         s.fee AS staff_fee,
-        a.role_id AS role_id,
-        r.code AS role_code,
-        r.name AS role_name,
+        a.role_code AS role_code,
+        r.description AS role_description,
         r.location AS role_location,
         a.status AS assignment_status
       FROM assignments a
       JOIN events e ON e.id = a.event_id
       JOIN staff s ON s.id = a.staff_id
-      JOIN roles r ON r.id = a.role_id
+      JOIN roles r ON r.role_code = a.role_code
       ${whereClause}
-      ORDER BY e.ko_italy DESC NULLS LAST, e.id DESC, a.id DESC
+      ORDER BY e.date DESC NULLS LAST, e.ko_italy_time DESC NULLS LAST, e.id DESC, a.id DESC
     `;
 
     const result = await pool.query<{
-      event_id: number;
-      event_ko_italy: Date | string | null;
+      event_id: string;
+      event_date: unknown;
+      event_ko_italy_time: unknown;
       matchday: number | null;
-      staff_id: string;
+      staff_id: number;
       staff_surname: string;
       staff_name: string;
-      staff_fee: number | null;
-      role_id: number;
+      staff_fee: unknown;
       role_code: string;
-      role_name: string;
+      role_description: string | null;
       role_location: string | null;
       assignment_status: string;
     }>(sql, params);
 
     const items: ConsuntivoRow[] = result.rows.map((row) => {
-      const fee = Number(row.staff_fee) || 0;
-      const ko = row.event_ko_italy;
-      const eventDate =
-        ko == null
-          ? null
-          : typeof ko === "string"
-            ? ko
-            : ko instanceof Date
-              ? ko.toISOString()
-              : String(ko);
+      const fee = feeToNumber(row.staff_fee);
+      const rc = row.role_code;
+      const rn =
+        row.role_description != null && String(row.role_description).trim()
+          ? String(row.role_description).trim()
+          : rc;
 
       return {
-        eventId: row.event_id,
-        eventDate,
+        eventId: String(row.event_id),
+        eventDate: combineEventDate(row.event_date, row.event_ko_italy_time),
         matchday: row.matchday,
         staffId: String(row.staff_id) as StaffId,
         staffName: `${row.staff_surname} ${row.staff_name}`.trim(),
-        roleId: row.role_id,
-        roleCode: row.role_code,
-        roleName: row.role_name,
+        roleCode: rc,
+        roleName: rn,
         location: row.role_location ?? null,
         fee,
         assignmentStatus: row.assignment_status,

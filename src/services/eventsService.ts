@@ -1,7 +1,7 @@
+import { randomUUID } from "crypto";
 import { pool } from "../db";
 import type {
   Event,
-  EventAssignmentsStatus,
   AssignmentWithJoins,
   AssignmentStatus,
   EventListFilters,
@@ -11,93 +11,150 @@ import type {
 } from "../types";
 import { ensureAssignmentsForEvent } from "./assignmentsGenerator";
 
-const EVENT_COLUMNS =
-  "id, external_match_id, category, competition_name, competition_code, matchday," +
-  "home_team_name_short, away_team_name_short, venue_name, venue_city, venue_address," +
-  "ko_italy, pre_duration_minutes, standard_onsite, standard_cologno," +
-  "location AS area_produzione, show_name, rights_holder, facilities, studio," +
-  "status, notes, assignments_status";
+const EVENT_COLUMNS = [
+  "id",
+  "category",
+  "date",
+  "status",
+  "competition_name",
+  "matchday",
+  "day",
+  "ko_italy_time",
+  "pre_duration_minutes",
+  "home_team_name_short",
+  "away_team_name_short",
+  "rights_holder",
+  "standard_onsite",
+  "standard_cologno",
+  "facilities",
+  "studio",
+  "show_name",
+  "client",
+  "format_name",
+  "episode",
+  "name_episode",
+  "start_time",
+  "notes",
+].join(", ");
+
+function combineKoDisplay(date: string | null, time: string | null): string | null {
+  if (!date && !time) return null;
+  const d = (date ?? "").trim();
+  const t = (time ?? "").trim();
+  if (d && t) return `${d}T${t}`;
+  return d || t || null;
+}
 
 function mapRowToEvent(row: Record<string, unknown>): Event {
-  const assignmentsStatus = row.assignments_status;
-  const safeAssignmentsStatus: EventAssignmentsStatus =
-    assignmentsStatus === "DRAFT" || assignmentsStatus === "READY_TO_SEND"
-      ? (assignmentsStatus as EventAssignmentsStatus)
-      : "DRAFT";
-
   return {
-    id: Number(row.id),
-    externalMatchId: row.external_match_id != null ? String(row.external_match_id) : null,
+    id: String(row.id ?? ""),
     category: String(row.category ?? ""),
+    date: row.date != null ? String(row.date).slice(0, 10) : null,
+    status: row.status != null ? String(row.status) : null,
     competitionName: String(row.competition_name ?? ""),
-    competitionCode: row.competition_code != null ? String(row.competition_code) : null,
-    matchDay: row.matchday != null ? String(row.matchday) : null,
-    homeTeamNameShort: row.home_team_name_short != null ? String(row.home_team_name_short) : null,
-    awayTeamNameShort: row.away_team_name_short != null ? String(row.away_team_name_short) : null,
-    venueName: row.venue_name != null ? String(row.venue_name) : null,
-    venueCity: row.venue_city != null ? String(row.venue_city) : null,
-    venueAddress: row.venue_address != null ? String(row.venue_address) : null,
-    koItaly: row.ko_italy != null ? String(row.ko_italy) : null,
+    matchday: row.matchday != null ? Number(row.matchday) : null,
+    day: row.day != null ? String(row.day) : null,
+    koItalyTime: row.ko_italy_time != null ? String(row.ko_italy_time) : null,
     preDurationMinutes: Number(row.pre_duration_minutes ?? 0),
+    homeTeamNameShort:
+      row.home_team_name_short != null ? String(row.home_team_name_short) : null,
+    awayTeamNameShort:
+      row.away_team_name_short != null ? String(row.away_team_name_short) : null,
+    rightsHolder: row.rights_holder != null ? String(row.rights_holder) : null,
     standardOnsite: row.standard_onsite != null ? String(row.standard_onsite) : null,
     standardCologno: row.standard_cologno != null ? String(row.standard_cologno) : null,
-    areaProduzione: row.area_produzione != null ? String(row.area_produzione) : null,
-    showName: row.show_name != null ? String(row.show_name) : null,
-    rightsHolder: row.rights_holder != null ? String(row.rights_holder) : null,
     facilities: row.facilities != null ? String(row.facilities) : null,
     studio: row.studio != null ? String(row.studio) : null,
-    status: String(row.status ?? "TBD"),
+    showName: row.show_name != null ? String(row.show_name) : null,
+    client: row.client != null ? String(row.client) : null,
+    formatName: row.format_name != null ? String(row.format_name) : null,
+    episode: row.episode != null ? Number(row.episode) : null,
+    nameEpisode: row.name_episode != null ? String(row.name_episode) : null,
+    startTime: row.start_time != null ? String(row.start_time) : null,
     notes: row.notes != null ? String(row.notes) : null,
-    assignmentsStatus: safeAssignmentsStatus,
   };
 }
 
-/** Serializzazione REST: espone `rights_holder` in snake_case (come colonne DB). */
+/** Serializzazione REST: snake_case dove serve al client legacy. */
 export function eventToApiJson(e: Event): Record<string, unknown> {
-  const { rightsHolder, ...rest } = e;
-  return { ...rest, rights_holder: rightsHolder };
+  return {
+    id: e.id,
+    category: e.category,
+    date: e.date,
+    status: e.status,
+    competition_name: e.competitionName,
+    competitionName: e.competitionName,
+    matchday: e.matchday,
+    day: e.day,
+    ko_italy_time: e.koItalyTime,
+    koItaly: combineKoDisplay(e.date, e.koItalyTime),
+    pre_duration_minutes: e.preDurationMinutes,
+    preDurationMinutes: e.preDurationMinutes,
+    home_team_name_short: e.homeTeamNameShort,
+    away_team_name_short: e.awayTeamNameShort,
+    rights_holder: e.rightsHolder,
+    standard_onsite: e.standardOnsite,
+    standard_cologno: e.standardCologno,
+    facilities: e.facilities,
+    studio: e.studio,
+    show_name: e.showName,
+    client: e.client,
+    format_name: e.formatName,
+    episode: e.episode,
+    name_episode: e.nameEpisode,
+    start_time: e.startTime,
+    notes: e.notes,
+  };
 }
 
 function mapRowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWithJoins {
+  const ko = combineKoDisplay(
+    row.e_date != null ? String(row.e_date).slice(0, 10) : null,
+    row.e_ko_italy_time != null ? String(row.e_ko_italy_time) : null
+  );
   return {
     id: row.a_id as number,
-    eventId: row.a_event_id as number,
-    roleId: row.a_role_id as number,
-    staffId:
-      row.a_staff_id != null ? String(row.a_staff_id) : null,
+    eventId: String(row.a_event_id ?? ""),
+    roleCode: String(row.a_role_code ?? ""),
+    staffId: row.a_staff_id != null ? Number(row.a_staff_id) : null,
     status: row.a_status as AssignmentStatus,
     notes: row.a_notes as string | null,
     createdAt: String(row.a_created_at),
     updatedAt: String(row.a_updated_at),
-    eventExternalMatchId:
-      row.e_external_match_id != null ? String(row.e_external_match_id) : null,
     eventCategory: row.e_category as string,
     eventCompetitionName: row.e_competition_name as string,
-    eventCompetitionCode: row.e_competition_code as string | null,
     eventMatchDay: row.e_matchday as number | null,
     eventHomeTeamNameShort: row.e_home_team_name_short as string | null,
     eventAwayTeamNameShort: row.e_away_team_name_short as string | null,
-    eventVenueName: row.e_venue_name as string | null,
-    eventVenueCity: row.e_venue_city as string | null,
-    eventKoItaly: row.e_ko_italy != null ? String(row.e_ko_italy) : null,
-    eventStatus: row.e_status as string,
+    eventKoItaly: ko,
+    eventStatus: String(row.e_status ?? ""),
     staffSurname: row.s_surname as string | null,
     staffName: row.s_name as string | null,
     staffEmail: row.s_email as string | null,
     staffPhone: row.s_phone as string | null,
     staffCompany: row.s_company as string | null,
-    staffFee: row.s_fee as number | null,
+    staffFee: row.s_fee != null ? String(row.s_fee) : null,
     staffPlates: row.s_plates as string | null,
-    roleCode: row.r_code as string,
-    roleName: row.r_name as string,
-    roleLocation: row.r_location as string,
+    roleLocation: String(row.r_location ?? ""),
+    roleDescription: row.r_description != null ? String(row.r_description) : null,
   };
 }
 
 const DESIGNABLE_WHERE = `standard_onsite IS NOT NULL AND standard_onsite <> ''
   AND standard_cologno IS NOT NULL AND standard_cologno <> ''
-  AND status IN ('OK', 'CONFIRMED')
-  AND assignments_status = 'DRAFT'`;
+  AND status IN ('OK', 'CONFIRMED')`;
+
+const ASSIGNMENT_EVENT_ROLE_SELECT = `
+  a.id as a_id, a.event_id as a_event_id, a.role_code as a_role_code, a.staff_id as a_staff_id,
+  a.status as a_status, a.notes as a_notes, a.created_at as a_created_at, a.updated_at as a_updated_at,
+  e.category as e_category, e.competition_name as e_competition_name, e.matchday as e_matchday,
+  e.date as e_date, e.ko_italy_time as e_ko_italy_time,
+  e.home_team_name_short as e_home_team_name_short, e.away_team_name_short as e_away_team_name_short,
+  e.status as e_status,
+  s.surname as s_surname, s.name as s_name, s.email as s_email, s.phone as s_phone,
+  s.company as s_company, s.fee as s_fee, s.plates as s_plates,
+  r.role_code as r_role_code, r.description as r_description, r.location as r_location
+`;
 
 function buildListWhereClause(
   filters: EventListFilters
@@ -124,19 +181,9 @@ function buildListWhereClause(
     params.push(`%${filters.competitionName.trim()}%`);
     i++;
   }
-  if (filters.competitionCode?.trim()) {
-    conditions.push(`competition_code = $${i}`);
-    params.push(filters.competitionCode.trim());
-    i++;
-  }
   if (filters.matchday !== undefined && !Number.isNaN(filters.matchday)) {
     conditions.push(`matchday = $${i}`);
     params.push(filters.matchday);
-    i++;
-  }
-  if (filters.venueCity?.trim()) {
-    conditions.push(`venue_city ILIKE $${i}`);
-    params.push(`%${filters.venueCity.trim()}%`);
     i++;
   }
   if (filters.status?.trim()) {
@@ -144,18 +191,13 @@ function buildListWhereClause(
     params.push(filters.status.trim());
     i++;
   }
-  if (filters.assignmentsStatus?.trim()) {
-    conditions.push(`assignments_status = $${i}`);
-    params.push(filters.assignmentsStatus.trim());
-    i++;
-  }
   if (filters.dateFrom?.trim()) {
-    conditions.push(`ko_italy >= $${i}::timestamptz`);
+    conditions.push(`date >= $${i}::date`);
     params.push(filters.dateFrom.trim());
     i++;
   }
   if (filters.dateTo?.trim()) {
-    conditions.push(`ko_italy <= $${i}::timestamptz`);
+    conditions.push(`date <= $${i}::date`);
     params.push(filters.dateTo.trim());
     i++;
   }
@@ -188,7 +230,7 @@ export async function listEvents(
     `SELECT ${EVENT_COLUMNS}
      FROM events
      ${clause}
-     ORDER BY ko_italy ASC NULLS LAST, id ASC
+     ORDER BY date ASC NULLS LAST, ko_italy_time ASC NULLS LAST, id ASC
      LIMIT $${limIdx} OFFSET $${offIdx}`,
     dataParams
   );
@@ -212,7 +254,7 @@ export async function listDesignableEvents(
     `SELECT ${EVENT_COLUMNS}
      FROM events
      ${where}
-     ORDER BY ko_italy ASC NULLS LAST, id ASC
+     ORDER BY date ASC NULLS LAST, ko_italy_time ASC NULLS LAST, id ASC
      LIMIT $1 OFFSET $2`,
     [pagination.limit, pagination.offset]
   );
@@ -223,7 +265,7 @@ export async function listDesignableEvents(
   return { items, total };
 }
 
-export async function getEventById(id: number): Promise<Event | null> {
+export async function getEventById(id: string): Promise<Event | null> {
   const result = await pool.query(
     `SELECT ${EVENT_COLUMNS} FROM events WHERE id = $1`,
     [id]
@@ -233,68 +275,48 @@ export async function getEventById(id: number): Promise<Event | null> {
 }
 
 export async function createEvent(payload: EventCreatePayload): Promise<Event> {
-  const category = payload.category;
-  const competitionName = payload.competitionName;
-  const competitionCode = payload.competitionCode ?? null;
-  const matchday = payload.matchday ?? null;
-  const homeTeamNameShort = payload.homeTeamNameShort ?? null;
-  const awayTeamNameShort = payload.awayTeamNameShort ?? null;
-  const venueName = payload.venueName ?? null;
-  const venueCity = payload.venueCity ?? null;
-  const venueAddress = payload.venueAddress ?? null;
-  const koItaly = payload.koItaly ?? null;
-  const preDurationMinutes = payload.preDurationMinutes ?? 0;
-  const standardOnsite = payload.standardOnsite ?? null;
-  const standardCologno = payload.standardCologno ?? null;
-  const location = payload.location ?? null;
-  const showName = payload.showName ?? null;
-  const rightsHolder = payload.rightsHolder ?? null;
-  const facilities = payload.facilities ?? null;
-  const studio = payload.studio ?? null;
-  const status = payload.status ?? "TBD";
-  const notes = payload.notes ?? null;
-  const assignmentsStatus: EventAssignmentsStatus =
-    payload.assignmentsStatus === "READY_TO_SEND" || payload.assignmentsStatus === "DRAFT"
-      ? payload.assignmentsStatus
-      : "DRAFT";
+  const id = payload.id?.trim() || randomUUID();
 
   const result = await pool.query(
     `INSERT INTO events (
-      external_match_id, category, competition_name, competition_code, matchday,
-      home_team_name_short, away_team_name_short, venue_name, venue_city, venue_address,
-      ko_italy, pre_duration_minutes, standard_onsite, standard_cologno, location,
-      show_name, rights_holder, facilities, studio, status, notes, assignments_status
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      id, category, date, status, competition_name, matchday, day, ko_italy_time,
+      pre_duration_minutes, home_team_name_short, away_team_name_short, rights_holder,
+      standard_onsite, standard_cologno, facilities, studio, show_name, client, format_name,
+      episode, name_episode, start_time, notes
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+    )
     RETURNING ${EVENT_COLUMNS}`,
     [
-      payload.externalMatchId ?? null,
-      category,
-      competitionName,
-      competitionCode,
-      matchday,
-      homeTeamNameShort,
-      awayTeamNameShort,
-      venueName,
-      venueCity,
-      venueAddress,
-      koItaly,
-      preDurationMinutes,
-      standardOnsite,
-      standardCologno,
-      location,
-      showName,
-      rightsHolder,
-      facilities,
-      studio,
-      status,
-      notes,
-      assignmentsStatus,
+      id,
+      payload.category,
+      payload.date ?? null,
+      payload.status ?? "TBD",
+      payload.competitionName,
+      payload.matchday ?? null,
+      payload.day ?? null,
+      payload.koItalyTime ?? null,
+      payload.preDurationMinutes ?? 0,
+      payload.homeTeamNameShort ?? null,
+      payload.awayTeamNameShort ?? null,
+      payload.rightsHolder ?? null,
+      payload.standardOnsite ?? null,
+      payload.standardCologno ?? null,
+      payload.facilities ?? null,
+      payload.studio ?? null,
+      payload.showName ?? null,
+      payload.client ?? null,
+      payload.formatName ?? null,
+      payload.episode ?? null,
+      payload.nameEpisode ?? null,
+      payload.startTime ?? null,
+      payload.notes ?? null,
     ]
   );
 
   const event = mapRowToEvent(result.rows[0] as Record<string, unknown>);
-
-  if (["OK", "CONFIRMED"].includes(status)) {
+  const st = event.status ?? "";
+  if (["OK", "CONFIRMED"].includes(st)) {
     await ensureAssignmentsForEvent(pool, event.id);
   }
 
@@ -305,38 +327,32 @@ const UPDATE_FIELD_MAP: Array<{
   col: string;
   pick: (p: EventUpdatePayload) => unknown;
 }> = [
-  { col: "external_match_id", pick: (p) => p.externalMatchId },
   { col: "category", pick: (p) => p.category },
+  { col: "date", pick: (p) => p.date },
+  { col: "status", pick: (p) => p.status },
   { col: "competition_name", pick: (p) => p.competitionName },
-  { col: "competition_code", pick: (p) => p.competitionCode },
   { col: "matchday", pick: (p) => p.matchday },
+  { col: "day", pick: (p) => p.day },
+  { col: "ko_italy_time", pick: (p) => p.koItalyTime },
+  { col: "pre_duration_minutes", pick: (p) => p.preDurationMinutes },
   { col: "home_team_name_short", pick: (p) => p.homeTeamNameShort },
   { col: "away_team_name_short", pick: (p) => p.awayTeamNameShort },
-  { col: "venue_name", pick: (p) => p.venueName },
-  { col: "venue_city", pick: (p) => p.venueCity },
-  { col: "venue_address", pick: (p) => p.venueAddress },
-  { col: "ko_italy", pick: (p) => p.koItaly },
-  { col: "pre_duration_minutes", pick: (p) => p.preDurationMinutes },
+  { col: "rights_holder", pick: (p) => p.rightsHolder },
   { col: "standard_onsite", pick: (p) => p.standardOnsite },
   { col: "standard_cologno", pick: (p) => p.standardCologno },
-  { col: "location", pick: (p) => p.location },
-  { col: "show_name", pick: (p) => p.showName },
-  { col: "rights_holder", pick: (p) => p.rightsHolder },
   { col: "facilities", pick: (p) => p.facilities },
   { col: "studio", pick: (p) => p.studio },
-  { col: "status", pick: (p) => p.status },
+  { col: "show_name", pick: (p) => p.showName },
+  { col: "client", pick: (p) => p.client },
+  { col: "format_name", pick: (p) => p.formatName },
+  { col: "episode", pick: (p) => p.episode },
+  { col: "name_episode", pick: (p) => p.nameEpisode },
+  { col: "start_time", pick: (p) => p.startTime },
   { col: "notes", pick: (p) => p.notes },
-  {
-    col: "assignments_status",
-    pick: (p) =>
-      p.assignmentsStatus === "DRAFT" || p.assignmentsStatus === "READY_TO_SEND"
-        ? p.assignmentsStatus
-        : undefined,
-  },
 ];
 
 export async function updateEvent(
-  id: number,
+  id: string,
   payload: EventUpdatePayload
 ): Promise<Event | null> {
   const currentResult = await pool.query(
@@ -389,11 +405,7 @@ export async function updateEvent(
   return event;
 }
 
-/**
- * Soft delete: imposta status = 'CANCELED'.
- * Policy centralizzata qui per eventuale hard delete in futuro.
- */
-export async function softCancelEvent(id: number): Promise<boolean> {
+export async function softCancelEvent(id: string): Promise<boolean> {
   const exists = await pool.query("SELECT 1 FROM events WHERE id = $1", [id]);
   if (exists.rows.length === 0) return false;
 
@@ -401,33 +413,24 @@ export async function softCancelEvent(id: number): Promise<boolean> {
   return true;
 }
 
-export async function eventExists(id: number): Promise<boolean> {
+export async function eventExists(id: string): Promise<boolean> {
   const r = await pool.query("SELECT 1 FROM events WHERE id = $1", [id]);
   return r.rows.length > 0;
 }
 
 export async function runGenerateAssignmentsFromStandard(
-  eventId: number
+  eventId: string
 ): Promise<AssignmentWithJoins[]> {
   await ensureAssignmentsForEvent(pool, eventId);
 
   const itemsResult = await pool.query(
-    `SELECT a.id as a_id, a.event_id as a_event_id, a.role_id as a_role_id, a.staff_id as a_staff_id,
-            a.status as a_status, a.notes as a_notes, a.created_at as a_created_at, a.updated_at as a_updated_at,
-            e.external_match_id as e_external_match_id, e.category as e_category, e.competition_name as e_competition_name,
-            e.competition_code as e_competition_code, e.matchday as e_matchday,
-            e.home_team_name_short as e_home_team_name_short, e.away_team_name_short as e_away_team_name_short,
-            e.venue_name as e_venue_name, e.venue_city as e_venue_city, e.ko_italy as e_ko_italy,
-            e.status as e_status,
-            s.surname as s_surname, s.name as s_name, s.email as s_email, s.phone as s_phone,
-            s.company as s_company, s.fee as s_fee, s.plates as s_plates,
-            r.code as r_code, r.name as r_name, r.location as r_location
+    `SELECT ${ASSIGNMENT_EVENT_ROLE_SELECT}
      FROM assignments a
      JOIN events e ON e.id = a.event_id
-     JOIN roles r ON r.id = a.role_id
+     JOIN roles r ON r.role_code = a.role_code
      LEFT JOIN staff s ON s.id = a.staff_id
      WHERE a.event_id = $1
-     ORDER BY e.ko_italy ASC NULLS LAST, a.id ASC`,
+     ORDER BY e.date ASC NULLS LAST, e.ko_italy_time ASC NULLS LAST, a.id ASC`,
     [eventId]
   );
 
@@ -437,7 +440,7 @@ export async function runGenerateAssignmentsFromStandard(
 }
 
 export async function setAssignmentsReadyForEvent(
-  eventId: number,
+  eventId: string,
   assignmentIds: number[]
 ): Promise<number> {
   const placeholders = assignmentIds.map((_, i) => `$${i + 2}`).join(", ");
@@ -449,27 +452,5 @@ export async function setAssignmentsReadyForEvent(
     [eventId, ...assignmentIds]
   );
 
-  await pool.query(
-    "UPDATE events SET assignments_status = 'READY_TO_SEND' WHERE id = $1",
-    [eventId]
-  );
-
   return result.rowCount ?? 0;
-}
-
-export async function patchEventAssignmentsStatus(
-  id: number,
-  assignmentsStatus: EventAssignmentsStatus
-): Promise<{ id: number; assignmentsStatus: string } | null> {
-  const result = await pool.query(
-    "UPDATE events SET assignments_status = $1 WHERE id = $2 RETURNING id, assignments_status",
-    [assignmentsStatus, id]
-  );
-
-  if (result.rows.length === 0) return null;
-
-  return {
-    id: result.rows[0].id as number,
-    assignmentsStatus: String(result.rows[0].assignments_status),
-  };
 }

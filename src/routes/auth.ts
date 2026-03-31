@@ -221,7 +221,10 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
       email: string | null;
     } | undefined;
     if (staff && staff.email?.trim()) {
-      const token = await createPasswordResetToken(String(staff.id));
+      const token = await createPasswordResetToken(
+        Number(staff.id),
+        staff.email.trim()
+      );
       const resetUrl = `${FRONTEND_BASE.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
       const staffName = `${staff.name ?? ""} ${staff.surname ?? ""}`.trim() || staff.email.trim();
 
