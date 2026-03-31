@@ -96,10 +96,10 @@ router.post("/supabase/session", async (req: Request, res: Response) => {
       return;
     }
 
-    const staffId = profile.id;
-    createPitch2PersistentSession(res, staffId, { rememberMe: true });
+    // Cookie: sempre UUID Supabase (isStaffId), così coincide con auth.users.id e con supabase_id in DB.
+    createPitch2PersistentSession(res, supabaseUserId, { rememberMe: true });
 
-    res.status(200).json({ ok: true, staffId });
+    res.status(200).json({ ok: true, staffId: supabaseUserId });
   } catch (err) {
     console.error("POST /api/auth/supabase/session error:", err);
     res.status(500).json({ error: "Errore interno" });
