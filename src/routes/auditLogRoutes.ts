@@ -220,6 +220,7 @@ router.get("/", async (req: Request, res: Response) => {
       return;
     }
 
+    // Permessi su staff_page_permissions.staff_id (INTEGER): risoluzione UUID in getPageAccessLevel
     const access = await getPageAccessLevel(session.staffId, "cronologia");
     if (access === "none") {
       res.status(403).json({ error: "Forbidden" });

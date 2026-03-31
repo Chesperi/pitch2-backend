@@ -1,6 +1,6 @@
 import { pool } from "../db";
 import type { StaffId } from "../types/staffId";
-import { isStaffId } from "../types/staffId";
+import { resolveStaffDbIntegerId } from "./staffService";
 
 export type AccessLevel = "none" | "view" | "edit";
 
@@ -23,11 +23,17 @@ export async function getPageAccessLevel(
   staffId: StaffId,
   pageKey: string
 ): Promise<AccessLevel> {
-  if (!isStaffId(staffId)) {
+  const sid = String(staffId ?? "").trim();
+  if (!sid) {
     return "none";
   }
   const key = String(pageKey ?? "").trim();
   if (!key) {
+    return "none";
+  }
+
+  const staffPk = await resolveStaffDbIntegerId(sid);
+  if (staffPk == null) {
     return "none";
   }
 
@@ -36,7 +42,7 @@ export async function getPageAccessLevel(
      FROM staff_page_permissions
      WHERE staff_id = $1 AND page_key = $2
      LIMIT 1`,
-    [staffId, key]
+    [staffPk, key]
   );
 
   const row = result.rows[0];

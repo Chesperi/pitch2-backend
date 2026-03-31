@@ -13,6 +13,7 @@ export async function requirePageRead(
     res.status(401).json({ error: "Unauthorized" });
     return false;
   }
+  // session.staffId è spesso UUID Supabase; getPageAccessLevel risolve alla PK INTEGER per staff_page_permissions
   const access = await getPageAccessLevel(session.staffId, pageKey);
   if (access === "none") {
     res.status(403).json({ error: "Forbidden" });
@@ -32,6 +33,7 @@ export async function requirePageEdit(
     res.status(401).json({ error: "Unauthorized" });
     return false;
   }
+  // stesso schema di requirePageRead: UUID sessione → PK staff in getPageAccessLevel
   const access = await getPageAccessLevel(session.staffId, pageKey);
   if (access !== "edit") {
     res.status(403).json({ error: "Forbidden" });
