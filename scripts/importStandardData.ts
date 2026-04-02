@@ -86,9 +86,7 @@ async function importStandardRequirements(): Promise<{
   }
 
   const rows = XLSX.utils.sheet_to_json<RowRecord>(sheet);
-  let processed = 0;
-  let inserted = 0;
-  let updated = 0;
+  const toInsert: Record<string, unknown>[] = [];
   let skipped = 0;
 
   for (const row of rows) {
@@ -107,18 +105,11 @@ async function importStandardRequirements(): Promise<{
     const role_code = strFromRow(row, "rolecode", "role_code");
     const siteRaw = getStr(row, "site") ?? "";
     const site = siteRaw.trim().toUpperCase();
-    const role_location =
-      (
-        getStr(row, "rolelocation") ??
-        getStr(row, "role_location") ??
-        site
-      )
-        .trim()
-        .toUpperCase();
-    const area_produzione =
-      getStr(row, "areaproduzione") ??
-      getStr(row, "area_produzione") ??
-      "";
+    const role_location = site;
+    let area_produzione = strFromRow(row, "areaproduzione", "area_produzione");
+    if (!area_produzione.trim()) {
+      area_produzione = standard_cologno;
+    }
     const quantityStr = getStr(row, "quantity");
     const quantity = Math.max(
       1,
@@ -133,23 +124,7 @@ async function importStandardRequirements(): Promise<{
       continue;
     }
 
-    const { data: roleOk } = await supabaseAdmin
-      .from("roles")
-      .select("role_code")
-      .eq("role_code", role_code)
-      .eq("location", role_location)
-      .limit(1)
-      .maybeSingle();
-
-    if (!roleOk) {
-      console.warn(
-        `[warn] Ruolo assente (${role_code} / ${role_location}), riga saltata`
-      );
-      skipped++;
-      continue;
-    }
-
-    const payload = {
+    toInsert.push({
       standard_onsite,
       standard_cologno,
       facilities: facilities ?? null,
@@ -160,53 +135,25 @@ async function importStandardRequirements(): Promise<{
       area_produzione: area_produzione.trim(),
       quantity,
       notes: notes ?? null,
-    };
-
-    const { data: existingRows, error: selErr } = await supabaseAdmin
-      .from("standard_requirements")
-      .select("id")
-      .eq("standard_onsite", standard_onsite)
-      .eq("standard_cologno", standard_cologno)
-      .eq("site", site)
-      .eq("role_code", role_code)
-      .eq("role_location", role_location)
-      .eq("area_produzione", payload.area_produzione)
-      .limit(1);
-
-    if (selErr) {
-      console.error("[err] select standard_requirements:", selErr.message);
-      skipped++;
-      continue;
-    }
-
-    const existingId = existingRows?.[0]?.id as number | undefined;
-
-    if (existingId != null) {
-      const { error: upErr } = await supabaseAdmin
-        .from("standard_requirements")
-        .update(payload)
-        .eq("id", existingId);
-      if (upErr) {
-        console.error("[err] update standard_requirements:", upErr.message);
-        skipped++;
-        continue;
-      }
-      updated++;
-    } else {
-      const { error: insErr } = await supabaseAdmin
-        .from("standard_requirements")
-        .insert(payload);
-      if (insErr) {
-        console.error("[err] insert standard_requirements:", insErr.message);
-        skipped++;
-        continue;
-      }
-      inserted++;
-    }
-    processed++;
+    });
   }
 
-  return { processed, inserted, updated, skipped };
+  let inserted = 0;
+  const chunkSize = 100;
+  for (let i = 0; i < toInsert.length; i += chunkSize) {
+    const chunk = toInsert.slice(i, i + chunkSize);
+    const { error } = await supabaseAdmin
+      .from("standard_requirements")
+      .insert(chunk);
+    if (error) {
+      console.error("[err] insert standard_requirements (chunk):", error.message);
+      throw error;
+    }
+    inserted += chunk.length;
+  }
+
+  const processed = inserted;
+  return { processed, inserted, updated: 0, skipped };
 }
 
 async function importStandardCost(): Promise<{
@@ -314,7 +261,7 @@ async function main() {
   try {
     const reqStats = await importStandardRequirements();
     console.log(
-      `[standard_requirements] elaborate: ${reqStats.processed} (inseriti: ${reqStats.inserted}, aggiornati: ${reqStats.updated}, saltati: ${reqStats.skipped})`
+      `[standard_requirements] inseriti: ${reqStats.inserted}, saltati: ${reqStats.skipped} (solo INSERT, nessun controllo su roles)`
     );
 
     const costStats = await importStandardCost();
