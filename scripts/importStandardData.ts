@@ -48,6 +48,26 @@ function findSheet(
   return workbook.Sheets[name] ?? null;
 }
 
+function findSheetFirst(
+  workbook: XLSX.WorkBook,
+  names: string[]
+): XLSX.WorkSheet | null {
+  for (const n of names) {
+    const s = findSheet(workbook, n);
+    if (s) return s;
+  }
+  return null;
+}
+
+/** Prova più nomi colonna (Excel con/senza underscore). */
+function strFromRow(row: RowRecord, ...keys: string[]): string {
+  for (const key of keys) {
+    const v = getStr(row, key);
+    if (v != null && v !== "") return v;
+  }
+  return "";
+}
+
 async function importStandardRequirements(): Promise<{
   processed: number;
   inserted: number;
@@ -72,11 +92,19 @@ async function importStandardRequirements(): Promise<{
   let skipped = 0;
 
   for (const row of rows) {
-    const standard_onsite = getStr(row, "standardonsite") ?? "";
-    const standard_cologno = getStr(row, "standardcologno") ?? "";
+    const standard_onsite = strFromRow(
+      row,
+      "standardonsite",
+      "standard_onsite"
+    );
+    const standard_cologno = strFromRow(
+      row,
+      "standardcologno",
+      "standard_cologno"
+    );
     const facilities = getStr(row, "facilities");
     const studio = getStr(row, "studio");
-    const role_code = getStr(row, "rolecode") ?? "";
+    const role_code = strFromRow(row, "rolecode", "role_code");
     const siteRaw = getStr(row, "site") ?? "";
     const site = siteRaw.trim().toUpperCase();
     const role_location =
@@ -191,9 +219,9 @@ async function importStandardCost(): Promise<{
   }
 
   const workbook = XLSX.readFile(EXCEL_PATH, { cellDates: true });
-  const sheet = findSheet(workbook, "STANDARDCOST");
+  const sheet = findSheetFirst(workbook, ["STANDARDCOST", "STANDARD_COST"]);
   if (!sheet) {
-    console.log("[skip] Foglio STANDARDCOST non trovato");
+    console.log("[skip] Foglio STANDARDCOST / STANDARD_COST non trovato");
     return { processed: 0, upserted: 0, skipped: 0 };
   }
 
@@ -212,8 +240,12 @@ async function importStandardCost(): Promise<{
     batch.push({
       service,
       provider,
-      costexclusive: parseMoney(getRaw(row, "costexclusive")),
-      costcoexclusive: parseMoney(getRaw(row, "costcoexclusive")),
+      costexclusive: parseMoney(
+        getRaw(row, "costexclusive") ?? getRaw(row, "cost_exclusive")
+      ),
+      costcoexclusive: parseMoney(
+        getRaw(row, "costcoexclusive") ?? getRaw(row, "cost_coexclusive")
+      ),
       extra: parseMoney(getRaw(row, "extra")),
       notes: getStr(row, "notes"),
       updated_at: new Date().toISOString(),
@@ -222,6 +254,7 @@ async function importStandardCost(): Promise<{
 
   const chunkSize = 200;
   let upserted = 0;
+  let usedFallback = false;
 
   for (let i = 0; i < batch.length; i += chunkSize) {
     const chunk = batch.slice(i, i + chunkSize);
@@ -229,6 +262,43 @@ async function importStandardCost(): Promise<{
       onConflict: "service,provider",
     });
     if (error) {
+      const needFallback =
+        error.code === "42P10" ||
+        /ON CONFLICT|unique or exclusion constraint/i.test(error.message);
+      if (needFallback && !usedFallback) {
+        usedFallback = true;
+        console.warn(
+          "[warn] standard_cost: nessun UNIQUE(service,provider) su DB — uso insert/update per riga"
+        );
+        for (const rec of batch) {
+          const { service, provider, ...rest } = rec as {
+            service: string;
+            provider: string;
+            [k: string]: unknown;
+          };
+          const { data: existing } = await supabaseAdmin
+            .from("standard_cost")
+            .select("id")
+            .eq("service", service)
+            .eq("provider", provider)
+            .limit(1);
+          const id = existing?.[0]?.id;
+          if (id != null) {
+            const { error: u } = await supabaseAdmin
+              .from("standard_cost")
+              .update(rest)
+              .eq("id", id);
+            if (u) throw u;
+          } else {
+            const { error: ins } = await supabaseAdmin
+              .from("standard_cost")
+              .insert(rec);
+            if (ins) throw ins;
+          }
+          upserted++;
+        }
+        break;
+      }
       console.error("[err] upsert standard_cost:", error.message);
       throw error;
     }
