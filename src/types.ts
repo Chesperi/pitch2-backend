@@ -67,6 +67,21 @@ export interface StandardRequirement {
   roleLocation: string;
   quantity: number;
   notes: string | null;
+  facilities: string | null;
+  studio: string | null;
+}
+
+/** Tabella `standard_cost` (Supabase / Postgres). */
+export interface StandardCost {
+  id: number;
+  service: string;
+  provider: string;
+  costExclusive: number | null;
+  costCoExclusive: number | null;
+  extra: number | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface StandardRequirementWithRole extends StandardRequirement {

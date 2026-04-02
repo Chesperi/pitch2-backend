@@ -9,7 +9,8 @@
     "start": "node dist/index.js",
     "migrate": "ts-node src/scripts/runMigrations.ts",
     "import:csv": "ts-node src/scripts/importFromCsv.ts",
-    "import:excel": "ts-node src/scripts/importFromExcel.ts"
+    "import:excel": "ts-node src/scripts/importFromExcel.ts",
+    "import:standard-data": "ts-node scripts/importStandardData.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",

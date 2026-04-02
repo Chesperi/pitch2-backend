@@ -19,6 +19,8 @@ type StandardRequirementBody = {
   roleLocation?: string;
   quantity?: number;
   notes?: string | null;
+  facilities?: string | null;
+  studio?: string | null;
 };
 
 function standardChangedFields(
@@ -38,6 +40,10 @@ function standardChangedFields(
   if (before.roleLocation !== after.roleLocation) ch.push("roleLocation");
   if (before.quantity !== after.quantity) ch.push("quantity");
   if ((before.notes ?? null) !== (after.notes ?? null)) ch.push("notes");
+  if ((before.facilities ?? null) !== (after.facilities ?? null)) {
+    ch.push("facilities");
+  }
+  if ((before.studio ?? null) !== (after.studio ?? null)) ch.push("studio");
   return ch;
 }
 
@@ -72,6 +78,12 @@ function normalizeAreaProduzione(v: string | null | undefined): string {
   return String(v).trim();
 }
 
+function normalizeOptionalText(v: string | null | undefined): string | null {
+  if (v == null) return null;
+  const t = String(v).trim();
+  return t === "" ? null : t;
+}
+
 function rowToStandardRequirementWithRole(
   row: Record<string, unknown>
 ): StandardRequirementWithRole {
@@ -86,12 +98,21 @@ function rowToStandardRequirementWithRole(
     notes: row.notes as string | null,
     roleLocation: row.role_location as string,
     roleDescription: row.role_description != null ? String(row.role_description) : null,
+    facilities:
+      row.facilities != null && String(row.facilities).trim() !== ""
+        ? String(row.facilities).trim()
+        : null,
+    studio:
+      row.studio != null && String(row.studio).trim() !== ""
+        ? String(row.studio).trim()
+        : null,
   };
 }
 
 const SELECT_COLS = `
   sr.id, sr.standard_onsite, sr.standard_cologno, sr.site, sr.area_produzione,
   sr.role_code, sr.role_location, sr.quantity, sr.notes,
+  sr.facilities, sr.studio,
   r.description as role_description
 `;
 
@@ -268,13 +289,26 @@ router.post("/", async (req: Request, res: Response) => {
     const area = normalizeAreaProduzione(body.areaProduzione);
     const quantity = normalizeQuantity(body.quantity);
     const notes = normalizeNotes(body.notes);
+    const facilities = normalizeOptionalText(body.facilities);
+    const studio = normalizeOptionalText(body.studio);
 
     const insert = await pool.query<{ id: number }>(
       `INSERT INTO standard_requirements
-        (standard_onsite, standard_cologno, site, area_produzione, role_code, role_location, quantity, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        (standard_onsite, standard_cologno, site, area_produzione, role_code, role_location, quantity, notes, facilities, studio)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id`,
-      [onsite, cologno, siteParsed.value, area, roleCode, roleLocation, quantity, notes]
+      [
+        onsite,
+        cologno,
+        siteParsed.value,
+        area,
+        roleCode,
+        roleLocation,
+        quantity,
+        notes,
+        facilities,
+        studio,
+      ]
     );
 
     const newId = insert.rows[0]?.id;
@@ -305,6 +339,8 @@ router.post("/", async (req: Request, res: Response) => {
         roleLocation: full.roleLocation,
         quantity: full.quantity,
         notes: full.notes,
+        facilities: full.facilities,
+        studio: full.studio,
       },
     });
 
@@ -317,7 +353,10 @@ router.post("/", async (req: Request, res: Response) => {
   }
 });
 
-router.patch("/:id", async (req: Request, res: Response) => {
+async function updateStandardRequirementById(
+  req: Request,
+  res: Response
+): Promise<void> {
   try {
     if (!(await requirePageEdit(req, res, "database"))) return;
     const id = parseInt(req.params.id, 10);
@@ -427,6 +466,16 @@ router.patch("/:id", async (req: Request, res: Response) => {
       values.push(normalizeNotes(body.notes));
     }
 
+    if (body.facilities !== undefined) {
+      fields.push(`facilities = $${p++}`);
+      values.push(normalizeOptionalText(body.facilities));
+    }
+
+    if (body.studio !== undefined) {
+      fields.push(`studio = $${p++}`);
+      values.push(normalizeOptionalText(body.studio));
+    }
+
     if (fields.length === 0) {
       res.status(400).json({ error: "No fields to update" });
       return;
@@ -462,6 +511,8 @@ router.patch("/:id", async (req: Request, res: Response) => {
           roleLocation: full.roleLocation,
           quantity: full.quantity,
           notes: full.notes,
+          facilities: full.facilities,
+          studio: full.studio,
           changedFields,
         },
       });
@@ -469,11 +520,14 @@ router.patch("/:id", async (req: Request, res: Response) => {
 
     res.json(full);
   } catch (err) {
-    console.error("PATCH /api/standard-requirements/:id error:", err);
+    console.error("PATCH/PUT /api/standard-requirements/:id error:", err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "Internal server error",
     });
   }
-});
+}
+
+router.patch("/:id", updateStandardRequirementById);
+router.put("/:id", updateStandardRequirementById);
 
 export default router;

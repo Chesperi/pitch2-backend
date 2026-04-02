@@ -27,6 +27,7 @@ import accreditiPdfRouter from "./routes/accreditiPdfRoutes";
 import accreditiXlsxRouter from "./routes/accreditiXlsxRoutes";
 import accreditationAreasRouter from "./routes/accreditationAreasRoutes";
 import productionContactsLeedsRouter from "./routes/productionContactsLeeds";
+import standardCostRouter from "./routes/standardCost";
 
 validateSupabaseConfig();
 
@@ -59,6 +60,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/my-assignments", myAssignmentsRouter);
 app.use("/api/magic-links", magicLinksRouter);
 app.use("/api/standard-requirements", standardRequirementsRouter);
+app.use("/api/standard-cost", standardCostRouter);
 app.use("/api/cookies-jar/tasks", cookiesJarTasksRouter);
 app.use("/api/documents", documentsRouter);
 app.use("/api/agent", agentRouter);
