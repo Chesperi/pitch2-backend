@@ -26,6 +26,7 @@ import accreditiExportRouter from "./routes/accreditiExportRoutes";
 import accreditiPdfRouter from "./routes/accreditiPdfRoutes";
 import accreditiXlsxRouter from "./routes/accreditiXlsxRoutes";
 import accreditationAreasRouter from "./routes/accreditationAreasRoutes";
+import productionContactsLeedsRouter from "./routes/productionContactsLeeds";
 
 validateSupabaseConfig();
 
@@ -70,6 +71,7 @@ app.use("/api/accrediti", accreditiExportRouter);
 app.use("/api/accrediti", accreditiPdfRouter);
 app.use("/api/accrediti", accreditiXlsxRouter);
 app.use("/api/accreditation-areas", accreditationAreasRouter);
+app.use("/api/production-contacts-leeds", productionContactsLeedsRouter);
 /** SOLO SVILUPPO: magic link di test — vedi src/routes/devRoutes.ts */
 app.use("/api/dev", devRouter);
 
