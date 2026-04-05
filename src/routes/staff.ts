@@ -10,6 +10,13 @@ import type { AssignmentWithEvent, AssignmentStatus } from "../types";
 import { ensureSupabaseUserForStaff } from "../services/staffSupabase";
 import type { StaffId } from "../types/staffId";
 import { resolveStaffDbIntegerId } from "../services/staffService";
+import { createPasswordResetToken } from "../services/passwordResets";
+import { sendPasswordResetEmail } from "../services/brevo";
+
+const FRONTEND_BASE =
+  process.env.FRONTEND_BASE_URL ||
+  process.env.PITCH_FREELANCE_BASE_URL ||
+  "https://app.designazionipitch.com";
 
 const router = Router();
 
@@ -279,6 +286,65 @@ router.post("/", async (req: Request, res) => {
     res.status(201).json(staff);
   } catch (err) {
     console.error("POST /api/staff error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
+/**
+ * POST /api/staff/:id/invite — invia email con link per impostare la password (stesso flusso di forgot-password).
+ */
+router.post("/:id/invite", async (req: Request, res) => {
+  try {
+    if (!(await requirePageEdit(req, res, "database"))) return;
+
+    const staffPk = await resolveStaffPkFromParam(req.params.id);
+    if (staffPk == null) {
+      res.status(400).json({ error: "Invalid staff id" });
+      return;
+    }
+
+    const result = await pool.query<{
+      id: number;
+      name: string | null;
+      surname: string | null;
+      email: string | null;
+    }>(
+      `SELECT id, name, surname, email FROM staff WHERE id = $1`,
+      [staffPk]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "Staff not found" });
+      return;
+    }
+
+    const row = result.rows[0];
+    const email = row.email?.trim();
+    if (!email) {
+      res.status(400).json({ error: "Staff has no email" });
+      return;
+    }
+    if (!isValidEmail(email)) {
+      res.status(400).json({ error: "Invalid email" });
+      return;
+    }
+
+    const token = await createPasswordResetToken(staffPk, email);
+    const resetUrl = `${FRONTEND_BASE.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
+    const staffName =
+      `${row.name ?? ""} ${row.surname ?? ""}`.trim() || email;
+
+    await sendPasswordResetEmail({
+      toEmail: email,
+      toName: staffName,
+      resetUrl,
+    });
+
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("POST /api/staff/:id/invite error:", err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "Internal server error",
     });
