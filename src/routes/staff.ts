@@ -8,6 +8,7 @@ import {
 import { logAuditFromRequest } from "../services/auditLog";
 import type { AssignmentWithEvent, AssignmentStatus } from "../types";
 import { ensureSupabaseUserForStaff } from "../services/staffSupabase";
+import { supabaseAdmin } from "../supabaseClient";
 import type { StaffId } from "../types/staffId";
 import { resolveStaffDbIntegerId } from "../services/staffService";
 import { createPasswordResetToken } from "../services/passwordResets";
@@ -345,6 +346,65 @@ router.post("/:id/invite", async (req: Request, res) => {
     res.status(200).json({ success: true });
   } catch (err) {
     console.error("POST /api/staff/:id/invite error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
+/**
+ * DELETE /api/staff/:id — rimuove l'utente Supabase Auth (se collegato) e la riga staff.
+ */
+router.delete("/:id", async (req: Request, res) => {
+  try {
+    if (!(await requirePageEdit(req, res, "database"))) return;
+
+    const staffPk = await resolveStaffPkFromParam(req.params.id);
+    if (staffPk == null) {
+      res.status(400).json({ error: "Invalid staff id" });
+      return;
+    }
+
+    const result = await pool.query<{ id: number; supabase_id: string | null }>(
+      `SELECT id, supabase_id::text AS supabase_id FROM staff WHERE id = $1`,
+      [staffPk]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "Staff not found" });
+      return;
+    }
+
+    const supabaseId = result.rows[0].supabase_id?.trim();
+    if (supabaseAdmin && supabaseId) {
+      const { error: authErr } = await supabaseAdmin.auth.admin.deleteUser(
+        supabaseId
+      );
+      if (authErr) {
+        const msg = authErr.message.toLowerCase();
+        const notFound =
+          msg.includes("not found") ||
+          msg.includes("user not found") ||
+          authErr.status === 404;
+        if (!notFound) {
+          console.error("DELETE staff: Supabase auth.admin.deleteUser:", authErr);
+          res.status(502).json({
+            error: "Impossibile eliminare l'utente su Supabase",
+          });
+          return;
+        }
+      }
+    }
+
+    const del = await pool.query(`DELETE FROM staff WHERE id = $1`, [staffPk]);
+    if ((del.rowCount ?? 0) === 0) {
+      res.status(404).json({ error: "Staff not found" });
+      return;
+    }
+
+    res.status(204).send();
+  } catch (err) {
+    console.error("DELETE /api/staff/:id error:", err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "Internal server error",
     });
