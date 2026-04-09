@@ -391,20 +391,34 @@ router.post("/reset-password", async (req: Request, res: Response) => {
       return;
     }
 
-    const staffId = await getValidPasswordResetStaffId(token.trim());
-    if (!staffId) {
+    const staffPkRaw = await getValidPasswordResetStaffId(token.trim());
+    if (!staffPkRaw) {
+      res.status(400).json({ error: "Token non valido o scaduto" });
+      return;
+    }
+    const staffPk = Number.parseInt(String(staffPkRaw), 10);
+    if (!Number.isFinite(staffPk) || staffPk < 1) {
       res.status(400).json({ error: "Token non valido o scaduto" });
       return;
     }
 
-    const ok = await setStaffPasswordWithSupabase(staffId, password);
+    const supabaseUserId = await getStaffSupabaseIdByDbPk(staffPk);
+    if (!supabaseUserId) {
+      res.status(500).json({
+        error:
+          "Account senza profilo di accesso collegato. Contatta l'amministratore.",
+      });
+      return;
+    }
+
+    const ok = await setStaffPasswordWithSupabase(supabaseUserId, password);
     if (!ok) {
       res.status(500).json({ error: "Impossibile aggiornare la password" });
       return;
     }
 
     await markPasswordResetAsUsed(token.trim());
-    setPersistentSession(res, staffId, true);
+    setPersistentSession(res, supabaseUserId, true);
 
     res.status(200).json({ success: true });
   } catch (err) {
