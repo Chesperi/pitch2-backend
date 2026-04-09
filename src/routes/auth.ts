@@ -1,7 +1,10 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../db";
 import { supabaseAdmin } from "../supabaseClient";
-import { validateAndConsumeAuthMagicLink } from "../services/authMagicLinks";
+import {
+  peekAuthMagicLinkByToken,
+  consumeAuthMagicLinkToken,
+} from "../services/authMagicLinks";
 import {
   checkStaffPasswordWithSupabase,
   setStaffPasswordWithSupabase,
@@ -21,6 +24,7 @@ import {
   setMagicSession,
   clearMagicSession,
   setPersistentSession,
+  clearPersistentSession,
   createPitch2PersistentSession,
   getCurrentSession,
 } from "../auth/session";
@@ -28,8 +32,11 @@ import {
   requirePitch2Session,
   AuthenticatedRequest,
 } from "../middleware/requirePitch2Session";
-import { getStaffProfileById } from "../services/staffService";
-import { normalizeStaffId } from "../types/staffId";
+import {
+  getStaffProfileById,
+  getStaffSupabaseIdByDbPk,
+} from "../services/staffService";
+import { isStaffId, normalizeStaffId } from "../types/staffId";
 
 const router = Router();
 const APP_BASE =
@@ -67,14 +74,29 @@ router.get(
   }
 );
 
-// POST /api/auth/supabase/session — valida JWT, risolve staff per auth.users.id (UUID)
+/**
+ * Body: { access_token, rememberMe? }
+ * rememberMe assente o valore "truthy" → pitch2_session lunga (~30 gg).
+ * rememberMe false | "false" | 0 | "0" → sessione breve (~1 giorno).
+ */
 router.post("/supabase/session", async (req: Request, res: Response) => {
   try {
-    const access_token = (req.body as { access_token?: unknown })?.access_token;
+    const body = req.body as {
+      access_token?: unknown;
+      rememberMe?: unknown;
+    };
+    const access_token = body.access_token;
     if (typeof access_token !== "string" || !access_token.trim()) {
       res.status(400).json({ error: "access_token richiesto" });
       return;
     }
+
+    /** true = sessione lunga (~30gg), come checkbox "Ricordami". Default se campo assente. */
+    const persistLong =
+      body.rememberMe !== false &&
+      body.rememberMe !== "false" &&
+      body.rememberMe !== 0 &&
+      body.rememberMe !== "0";
 
     if (!supabaseAdmin) {
       res.status(503).json({ error: "Supabase non configurato" });
@@ -96,8 +118,10 @@ router.post("/supabase/session", async (req: Request, res: Response) => {
       return;
     }
 
-    // Cookie: sempre UUID Supabase (isStaffId), così coincide con auth.users.id e con supabase_id in DB.
-    createPitch2PersistentSession(res, supabaseUserId, { rememberMe: true });
+    // Cookie: sempre UUID Supabase (isStaffId), coincide con auth.users.id e supabase_id in DB.
+    createPitch2PersistentSession(res, supabaseUserId, {
+      rememberMe: persistLong,
+    });
 
     res.status(200).json({ ok: true, staffId: supabaseUserId });
   } catch (err) {
@@ -107,6 +131,7 @@ router.post("/supabase/session", async (req: Request, res: Response) => {
 });
 
 // GET /api/auth/magic-login?token=...
+// Imposta pitch2_magic_session con UUID (supabase_id), mai con la PK SERIAL.
 router.get("/magic-login", async (req: Request, res: Response) => {
   try {
     const token = String(req.query.token ?? "").trim();
@@ -115,21 +140,102 @@ router.get("/magic-login", async (req: Request, res: Response) => {
       return;
     }
 
-    const info = await validateAndConsumeAuthMagicLink(token);
-    if (!info) {
+    const peek = await peekAuthMagicLinkByToken(token);
+    if (!peek) {
       redirectToInvalid(res);
       return;
     }
 
-    setMagicSession(res, info.staffId);
+    const supabaseSessionKey = await getStaffSupabaseIdByDbPk(peek.staffPk);
+    if (!supabaseSessionKey || !isStaffId(supabaseSessionKey)) {
+      console.warn(
+        "GET /api/auth/magic-login: staff senza supabase_id valido (pk=",
+        peek.staffPk,
+        ")"
+      );
+      redirectToInvalid(res);
+      return;
+    }
 
-    const redirectUrl = `${APP_BASE.replace(/\/$/, "")}/magic-login${
-      info.redirectPath ? `?redirect=${encodeURIComponent(info.redirectPath)}` : ""
+    const consumed = await consumeAuthMagicLinkToken(token);
+    if (!consumed) {
+      redirectToInvalid(res);
+      return;
+    }
+
+    setMagicSession(res, supabaseSessionKey);
+
+    const redirectUrl = `${APP_BASE.replace(/\/$/, "")}/invite/set-password${
+      peek.redirectPath
+        ? `?redirect=${encodeURIComponent(peek.redirectPath)}`
+        : ""
     }`;
     res.redirect(302, redirectUrl);
   } catch (err) {
     console.error("GET /api/auth/magic-login error:", err);
     redirectToInvalid(res);
+  }
+});
+
+/**
+ * Primo accesso dopo invito: imposta la password Supabase con cookie pitch2_magic_session valido.
+ * Non imposta pitch2_session — l'utente deve poi fare login su /login.
+ */
+router.post("/invite/set-password", async (req: Request, res: Response) => {
+  try {
+    const session = getCurrentSession(req);
+    if (!session || session.type !== "magic") {
+      res.status(401).json({ error: "Sessione invito non valida o scaduta" });
+      return;
+    }
+
+    const staffId = session.staffId;
+    const profile = await getStaffProfileById(staffId);
+    if (!profile || !profile.active) {
+      res.status(403).json({ error: "Staff non trovato o non attivo" });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const passwordRaw = body.password;
+    const confirmRaw =
+      body.confirmPassword !== undefined
+        ? body.confirmPassword
+        : body.confirm_password;
+
+    if (typeof passwordRaw !== "string" || typeof confirmRaw !== "string") {
+      res.status(400).json({
+        error: "password e confirmPassword sono obbligatori",
+      });
+      return;
+    }
+
+    const password = passwordRaw;
+    const confirmPassword = confirmRaw;
+
+    if (password.length < 8) {
+      res.status(400).json({
+        error: "La password deve avere almeno 8 caratteri",
+      });
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      res.status(400).json({ error: "Le password non coincidono" });
+      return;
+    }
+
+    const ok = await setStaffPasswordWithSupabase(staffId, password);
+    if (!ok) {
+      res.status(500).json({ error: "Impossibile impostare la password" });
+      return;
+    }
+
+    clearMagicSession(res);
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("POST /api/auth/invite/set-password error:", err);
+    res.status(500).json({ error: "Errore interno" });
   }
 });
 
@@ -191,6 +297,13 @@ router.post("/verify-password", async (req: Request, res: Response) => {
     console.error("POST /api/auth/verify-password error:", err);
     res.status(500).json({ error: "Errore interno" });
   }
+});
+
+// POST /api/auth/logout
+router.post("/logout", async (_req: Request, res: Response) => {
+  clearMagicSession(res);
+  clearPersistentSession(res);
+  res.status(200).json({ success: true });
 });
 
 function redirectToInvalid(res: Response): void {
