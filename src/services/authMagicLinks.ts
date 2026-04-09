@@ -21,10 +21,16 @@ export async function createAuthMagicLink(
   return token;
 }
 
-export async function validateAndConsumeAuthMagicLink(
+/** Legge il token senza consumarlo (usato prima di verificare supabase_id). */
+export async function peekAuthMagicLinkByToken(
   token: string
-): Promise<{ staffId: StaffId; redirectPath: string } | null> {
-  const result = await pool.query(
+): Promise<{ staffPk: number; redirectPath: string } | null> {
+  const result = await pool.query<{
+    staff_id: number;
+    redirect_path: string | null;
+    expires_at: Date;
+    used_at: Date | null;
+  }>(
     `SELECT staff_id, redirect_path, expires_at, used_at
      FROM auth_magic_links
      WHERE token = $1`,
@@ -36,13 +42,22 @@ export async function validateAndConsumeAuthMagicLink(
   if (row.used_at) return null;
   if (new Date(row.expires_at) < new Date()) return null;
 
-  await pool.query(
-    `UPDATE auth_magic_links SET used_at = now() WHERE token = $1`,
-    [token]
-  );
-
   return {
-    staffId: String(row.staff_id) as StaffId,
+    staffPk: Number(row.staff_id),
     redirectPath: row.redirect_path || "/designazioni",
   };
+}
+
+/** Segna il token come usato (dopo controlli ok). */
+export async function consumeAuthMagicLinkToken(
+  token: string
+): Promise<boolean> {
+  const r = await pool.query(
+    `UPDATE auth_magic_links
+     SET used_at = now()
+     WHERE token = $1 AND used_at IS NULL
+     RETURNING id`,
+    [token]
+  );
+  return (r.rowCount ?? 0) > 0;
 }

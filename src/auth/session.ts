@@ -50,6 +50,10 @@ export function clearMagicSession(res: Response): void {
   res.clearCookie(MAGIC_COOKIE, { path: "/" });
 }
 
+export function clearPersistentSession(res: Response): void {
+  res.clearCookie(PERSISTENT_COOKIE, { path: "/" });
+}
+
 export function setPersistentSession(
   res: Response,
   staffId: StaffId,

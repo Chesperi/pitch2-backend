@@ -1,6 +1,6 @@
 import { pool } from "../db";
 import type { StaffId } from "../types/staffId";
-import { normalizeStaffId } from "../types/staffId";
+import { isStaffId, normalizeStaffId } from "../types/staffId";
 
 export type StaffProfileAuth = {
   id: StaffId;
@@ -73,4 +73,26 @@ export async function resolveStaffDbIntegerId(sessionOrKey: string): Promise<num
     [key]
   );
   return result.rows[0]?.id ?? null;
+}
+
+/**
+ * Dalla PK intera `staff.id` (come in auth_magic_links.staff_id) restituisce
+ * supabase_id (auth.users.id) in forma normalizzata, per cookie pitch2_magic_session
+ * e coerenza con isStaffId.
+ */
+export async function getStaffSupabaseIdByDbPk(
+  staffPk: number
+): Promise<string | null> {
+  if (!Number.isFinite(staffPk) || staffPk < 1) return null;
+  const result = await pool.query<{ supabase_id: string | null }>(
+    `SELECT supabase_id::text AS supabase_id
+     FROM staff
+     WHERE id = $1 AND active = true
+     LIMIT 1`,
+    [Math.floor(staffPk)]
+  );
+  const raw = result.rows[0]?.supabase_id;
+  if (raw == null || String(raw).trim() === "") return null;
+  const normalized = normalizeStaffId(String(raw));
+  return isStaffId(normalized) ? normalized : null;
 }
