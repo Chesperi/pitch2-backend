@@ -12,7 +12,7 @@ import { supabaseAdmin } from "../supabaseClient";
 import type { StaffId } from "../types/staffId";
 import { resolveStaffDbIntegerId } from "../services/staffService";
 import { createPasswordResetToken } from "../services/passwordResets";
-import { sendPasswordResetEmail } from "../services/brevo";
+import { sendInviteEmail } from "../services/brevo";
 
 const FRONTEND_BASE =
   process.env.FRONTEND_BASE_URL ||
@@ -48,6 +48,58 @@ function isValidEmail(s: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
+const ISO_DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Ritorna `YYYY-MM-DD` o `null`; 400 se valorizzato ma non valido. */
+function normalizeDateOfBirthInput(
+  raw: unknown,
+  fieldLabel: string
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (raw === undefined || raw === null) {
+    return { ok: true, value: null };
+  }
+  const s = String(raw).trim();
+  if (s === "") {
+    return { ok: true, value: null };
+  }
+  if (!ISO_DATE_ONLY_RE.test(s)) {
+    return {
+      ok: false,
+      error: `${fieldLabel} deve essere nel formato YYYY-MM-DD`,
+    };
+  }
+  const t = Date.parse(`${s}T12:00:00.000Z`);
+  if (Number.isNaN(t)) {
+    return {
+      ok: false,
+      error: `${fieldLabel} non è una data valida`,
+    };
+  }
+  return { ok: true, value: s };
+}
+
+function normalizeFinanceVisibilityCreate(
+  raw: unknown
+): { ok: true; value: "HIDDEN" | "VISIBLE" } | { ok: false; error: string } {
+  if (raw === undefined || raw === null || String(raw).trim() === "") {
+    return { ok: true, value: "HIDDEN" };
+  }
+  const s = String(raw).trim().toUpperCase();
+  if (s !== "HIDDEN" && s !== "VISIBLE") {
+    return {
+      ok: false,
+      error: "financeVisibility deve essere HIDDEN o VISIBLE",
+    };
+  }
+  return { ok: true, value: s };
+}
+
+function optTrimString(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  const s = String(raw).trim();
+  return s === "" ? null : s;
+}
+
 async function rolePairExists(
   roleCode: string,
   roleLocation: string
@@ -72,7 +124,23 @@ export type StaffItem = {
   plates: string | null;
   user_level: string;
   active: boolean;
+  place_of_birth: string | null;
+  date_of_birth: string | null;
+  residential_address: string | null;
+  id_number: string | null;
+  extra_fee: string | null;
+  team_dazn: string | null;
+  notes: string | null;
+  finance_visibility: string;
 };
+
+/** Colonne staff per liste e dettagli (GET /api/staff, PATCH response, POST RETURNING). */
+const STAFF_ROW_SELECT = `
+  id, surname, name, email, phone, company, default_role_code, default_location,
+  fee, plates, user_level, active,
+  place_of_birth, date_of_birth, residential_address, id_number,
+  extra_fee, team_dazn, notes, finance_visibility
+`;
 
 function staffChangedFields(before: StaffItem, after: StaffItem): string[] {
   const changed: string[] = [];
@@ -91,6 +159,28 @@ function staffChangedFields(before: StaffItem, after: StaffItem): string[] {
   if ((before.plates ?? null) !== (after.plates ?? null)) changed.push("plates");
   if (before.user_level !== after.user_level) changed.push("userLevel");
   if (before.active !== after.active) changed.push("active");
+  if ((before.place_of_birth ?? null) !== (after.place_of_birth ?? null)) {
+    changed.push("placeOfBirth");
+  }
+  if ((before.date_of_birth ?? null) !== (after.date_of_birth ?? null)) {
+    changed.push("dateOfBirth");
+  }
+  if ((before.residential_address ?? null) !== (after.residential_address ?? null)) {
+    changed.push("residentialAddress");
+  }
+  if ((before.id_number ?? null) !== (after.id_number ?? null)) {
+    changed.push("idNumber");
+  }
+  if ((before.extra_fee ?? null) !== (after.extra_fee ?? null)) {
+    changed.push("extraFee");
+  }
+  if ((before.team_dazn ?? null) !== (after.team_dazn ?? null)) {
+    changed.push("teamDazn");
+  }
+  if ((before.notes ?? null) !== (after.notes ?? null)) changed.push("notes");
+  if (before.finance_visibility !== after.finance_visibility) {
+    changed.push("financeVisibility");
+  }
   return changed;
 }
 
@@ -139,8 +229,7 @@ router.get("/", async (req: Request, res) => {
 
     params.push(limit, offset);
     const itemsResult = await pool.query<StaffItem>(
-      `SELECT id, surname, name, email, phone, company, default_role_code,
-              default_location, fee, plates, user_level, active
+      `SELECT ${STAFF_ROW_SELECT}
        FROM staff
        ${whereClause}
        ORDER BY surname ASC, name ASC
@@ -161,7 +250,9 @@ router.get("/", async (req: Request, res) => {
  * POST /api/staff — crea una nuova anagrafica staff/freelance.
  * Body (camelCase): obbligatori `surname`, `name`, `email`, `defaultRoleCode`, `defaultLocation`;
  * `userLevel` (se omesso: `FREELANCE`); `active` (se omesso: `true`).
- * Opzionali: `phone`, `company`, `fee`, `plates`.
+ * Opzionali: `phone`, `company`, `fee`, `plates`,
+ * `placeOfBirth`, `dateOfBirth` (YYYY-MM-DD), `residentialAddress`, `idNumber`,
+ * `extraFee`, `teamDazn`, `notes`, `financeVisibility` (HIDDEN | VISIBLE; default HIDDEN).
  */
 router.post("/", async (req: Request, res) => {
   try {
@@ -230,10 +321,35 @@ router.post("/", async (req: Request, res) => {
       return;
     }
 
+    const dobResult = normalizeDateOfBirthInput(body.dateOfBirth, "dateOfBirth");
+    if (!dobResult.ok) {
+      res.status(400).json({ error: dobResult.error });
+      return;
+    }
+    const fvResult = normalizeFinanceVisibilityCreate(body.financeVisibility);
+    if (!fvResult.ok) {
+      res.status(400).json({ error: fvResult.error });
+      return;
+    }
+
+    const place_of_birth = optTrimString(body.placeOfBirth);
+    const date_of_birth = dobResult.value;
+    const residential_address = optTrimString(body.residentialAddress);
+    const id_number = optTrimString(body.idNumber);
+    const extra_fee = optTrimString(body.extraFee);
+    const team_dazn = optTrimString(body.teamDazn);
+    const notes = optTrimString(body.notes);
+    const finance_visibility = fvResult.value;
+
     const result = await pool.query(
-      `INSERT INTO staff (surname, name, email, phone, company, default_role_code, default_location, fee, plates, user_level, active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING id, surname, name, email, phone, company, default_role_code, default_location, fee, plates, user_level, active`,
+      `INSERT INTO staff (
+        surname, name, email, phone, company, default_role_code, default_location, fee, plates,
+        user_level, active,
+        place_of_birth, date_of_birth, residential_address, id_number,
+        extra_fee, team_dazn, notes, finance_visibility
+      )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+       RETURNING ${STAFF_ROW_SELECT}`,
       [
         surname,
         name,
@@ -246,6 +362,14 @@ router.post("/", async (req: Request, res) => {
         plates,
         user_level,
         active,
+        place_of_birth,
+        date_of_birth,
+        residential_address,
+        id_number,
+        extra_fee,
+        team_dazn,
+        notes,
+        finance_visibility,
       ]
     );
 
@@ -281,6 +405,14 @@ router.post("/", async (req: Request, res) => {
         company: staff.company,
         fee: staff.fee,
         plates: staff.plates,
+        placeOfBirth: staff.place_of_birth,
+        dateOfBirth: staff.date_of_birth,
+        residentialAddress: staff.residential_address,
+        idNumber: staff.id_number,
+        extraFee: staff.extra_fee,
+        teamDazn: staff.team_dazn,
+        notes: staff.notes,
+        financeVisibility: staff.finance_visibility,
       },
     });
 
@@ -333,14 +465,14 @@ router.post("/:id/invite", async (req: Request, res) => {
     }
 
     const token = await createPasswordResetToken(staffPk, email);
-    const resetUrl = `${FRONTEND_BASE.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
+    const inviteUrl = `${FRONTEND_BASE.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
     const staffName =
       `${row.name ?? ""} ${row.surname ?? ""}`.trim() || email;
 
-    await sendPasswordResetEmail({
+    await sendInviteEmail({
       toEmail: email,
       toName: staffName,
-      resetUrl,
+      inviteUrl,
     });
 
     res.status(200).json({ success: true });
@@ -425,9 +557,7 @@ router.patch("/:id", async (req: Request, res) => {
     }
 
     const currentResult = await pool.query<StaffItem>(
-      `SELECT id, surname, name, email, phone, company, default_role_code, default_location,
-              fee, plates, user_level, active
-       FROM staff WHERE id = $1`,
+      `SELECT ${STAFF_ROW_SELECT} FROM staff WHERE id = $1`,
       [staffPk]
     );
     if (currentResult.rows.length === 0) {
@@ -516,6 +646,28 @@ router.patch("/:id", async (req: Request, res) => {
       }
     }
 
+    let patchDateOfBirth: string | null | undefined = undefined;
+    if (body.dateOfBirth !== undefined) {
+      const dr = normalizeDateOfBirthInput(body.dateOfBirth, "dateOfBirth");
+      if (!dr.ok) {
+        res.status(400).json({ error: dr.error });
+        return;
+      }
+      patchDateOfBirth = dr.value;
+    }
+
+    let patchFinanceVisibility: "HIDDEN" | "VISIBLE" | undefined = undefined;
+    if (body.financeVisibility !== undefined) {
+      const s = String(body.financeVisibility).trim().toUpperCase();
+      if (s !== "HIDDEN" && s !== "VISIBLE") {
+        res.status(400).json({
+          error: "financeVisibility deve essere HIDDEN o VISIBLE",
+        });
+        return;
+      }
+      patchFinanceVisibility = s as "HIDDEN" | "VISIBLE";
+    }
+
     const fields: string[] = [];
     const values: unknown[] = [];
     let paramIdx = 1;
@@ -533,6 +685,63 @@ router.patch("/:id", async (req: Request, res) => {
       ["user_level", "userLevel", body.userLevel],
       ["active", "active", body.active],
     ];
+
+    if (body.placeOfBirth !== undefined) {
+      map.push([
+        "place_of_birth",
+        "placeOfBirth",
+        body.placeOfBirth === null
+          ? null
+          : String(body.placeOfBirth).trim() || null,
+      ]);
+    }
+    if (body.residentialAddress !== undefined) {
+      map.push([
+        "residential_address",
+        "residentialAddress",
+        body.residentialAddress === null
+          ? null
+          : String(body.residentialAddress).trim() || null,
+      ]);
+    }
+    if (body.idNumber !== undefined) {
+      map.push([
+        "id_number",
+        "idNumber",
+        body.idNumber === null ? null : String(body.idNumber).trim() || null,
+      ]);
+    }
+    if (body.extraFee !== undefined) {
+      map.push([
+        "extra_fee",
+        "extraFee",
+        body.extraFee === null ? null : String(body.extraFee).trim() || null,
+      ]);
+    }
+    if (body.teamDazn !== undefined) {
+      map.push([
+        "team_dazn",
+        "teamDazn",
+        body.teamDazn === null ? null : String(body.teamDazn).trim() || null,
+      ]);
+    }
+    if (body.notes !== undefined) {
+      map.push([
+        "notes",
+        "notes",
+        body.notes === null ? null : String(body.notes).trim() || null,
+      ]);
+    }
+    if (patchDateOfBirth !== undefined) {
+      map.push(["date_of_birth", "dateOfBirth", patchDateOfBirth]);
+    }
+    if (patchFinanceVisibility !== undefined) {
+      map.push([
+        "finance_visibility",
+        "financeVisibility",
+        patchFinanceVisibility,
+      ]);
+    }
 
     for (const [col, key, val] of map) {
       if (val !== undefined) {
@@ -561,8 +770,7 @@ router.patch("/:id", async (req: Request, res) => {
 
     if (fields.length === 0) {
       const fullResult = await pool.query<StaffItem>(
-        `SELECT id, surname, name, email, phone, company, default_role_code, default_location, fee, plates, user_level, active
-         FROM staff WHERE id = $1`,
+        `SELECT ${STAFF_ROW_SELECT} FROM staff WHERE id = $1`,
         [staffPk]
       );
       res.json(fullResult.rows[0]);
@@ -576,8 +784,7 @@ router.patch("/:id", async (req: Request, res) => {
     );
 
     const updatedResult = await pool.query<StaffItem>(
-      `SELECT id, surname, name, email, phone, company, default_role_code, default_location, fee, plates, user_level, active
-       FROM staff WHERE id = $1`,
+      `SELECT ${STAFF_ROW_SELECT} FROM staff WHERE id = $1`,
       [staffPk]
     );
     const staff = updatedResult.rows[0];
@@ -612,6 +819,14 @@ router.patch("/:id", async (req: Request, res) => {
           defaultLocation: staff.default_location,
           userLevel: staff.user_level,
           active: staff.active,
+          placeOfBirth: staff.place_of_birth,
+          dateOfBirth: staff.date_of_birth,
+          residentialAddress: staff.residential_address,
+          idNumber: staff.id_number,
+          extraFee: staff.extra_fee,
+          teamDazn: staff.team_dazn,
+          notes: staff.notes,
+          financeVisibility: staff.finance_visibility,
           changedFields,
         },
       });
@@ -737,6 +952,51 @@ router.get("/:id/assignments", async (req: Request, res) => {
     res.json({ items, total });
   } catch (err) {
     console.error("GET /api/staff/:id/assignments error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
+/**
+ * PATCH /api/staff/:id/finance-access
+ * Body: { financeAccessOverride: "allow" | "deny" | null }
+ */
+router.patch("/:id/finance-access", async (req: Request, res) => {
+  try {
+    if (!(await requirePageEdit(req, res, "master"))) return;
+    const staffPk = await resolveStaffPkFromParam(req.params.id);
+    if (staffPk == null) {
+      res.status(400).json({ error: "Invalid staff id" });
+      return;
+    }
+    const value = (req.body as { financeAccessOverride?: unknown })
+      .financeAccessOverride;
+    let financeVisibility: "VISIBLE" | "HIDDEN";
+    if (value === "allow") {
+      financeVisibility = "VISIBLE";
+    } else if (value === "deny" || value === null || value === "default") {
+      financeVisibility = "HIDDEN";
+    } else {
+      res.status(400).json({
+        error: "financeAccessOverride must be allow, deny or null",
+      });
+      return;
+    }
+    const result = await pool.query<StaffItem>(
+      `UPDATE staff
+       SET finance_visibility = $1
+       WHERE id = $2
+       RETURNING ${STAFF_ROW_SELECT}`,
+      [financeVisibility, staffPk]
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "Staff not found" });
+      return;
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("PATCH /api/staff/:id/finance-access error:", err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "Internal server error",
     });
