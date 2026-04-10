@@ -121,10 +121,23 @@ router.patch(
           payload.request_car_pass = null;
         }
       }
+      if ("requestCarPass" in body && !("request_car_pass" in body)) {
+        const v = body.requestCarPass;
+        if (v === null || v === undefined) payload.request_car_pass = null;
+        else if (typeof v === "boolean") payload.request_car_pass = v;
+      }
       if ("plate_selected" in body) {
         const v = body.plate_selected;
         payload.plate_selected =
           v === null || v === undefined ? null : String(v);
+      }
+      if ("plateSelected" in body && !("plate_selected" in body)) {
+        const v = body.plateSelected;
+        payload.plate_selected =
+          v === null || v === undefined ? null : String(v);
+      }
+      if (body.status === "REJECTED") {
+        payload.status = "REJECTED";
       }
 
       const ok = await updateMyAssignment(staffId, assignmentId, payload);

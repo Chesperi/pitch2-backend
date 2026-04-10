@@ -4,6 +4,7 @@ import type {
   Event,
   AssignmentWithJoins,
   AssignmentStatus,
+  EventAssignmentsStatus,
   EventListFilters,
   EventListPagination,
   EventCreatePayload,
@@ -107,6 +108,25 @@ export function eventToApiJson(e: Event): Record<string, unknown> {
   };
 }
 
+export async function getEventAssignmentsStatus(
+  eventId: string
+): Promise<EventAssignmentsStatus> {
+  const result = await pool.query<{ ready_count: string; sent_count: string }>(
+    `SELECT
+       SUM(CASE WHEN status = 'READY' THEN 1 ELSE 0 END)::int AS ready_count,
+       SUM(CASE WHEN status IN ('SENT','CONFIRMED','REJECTED') THEN 1 ELSE 0 END)::int AS sent_count
+     FROM assignments
+     WHERE event_id = $1`,
+    [eventId]
+  );
+  const row = result.rows[0];
+  const ready = Number(row?.ready_count ?? 0);
+  const sent = Number(row?.sent_count ?? 0);
+  if (ready > 0) return "READY_TO_SEND";
+  if (sent > 0) return "SENT";
+  return "DRAFT";
+}
+
 function mapRowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWithJoins {
   const ko = combineKoDisplay(
     row.e_date != null ? String(row.e_date).slice(0, 10) : null,
@@ -203,6 +223,21 @@ function buildListWhereClause(
   }
   if (filters.onlyDesignable) {
     conditions.push(`(${DESIGNABLE_WHERE})`);
+  }
+  const assignmentsStatus = (filters as EventListFilters & { assignmentsStatus?: string })
+    .assignmentsStatus;
+  if (assignmentsStatus === "DRAFT") {
+    conditions.push(
+      `NOT EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status IN ('READY','SENT','CONFIRMED','REJECTED'))`
+    );
+  } else if (assignmentsStatus === "READY_TO_SEND") {
+    conditions.push(
+      `EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status = 'READY')`
+    );
+  } else if (assignmentsStatus === "SENT") {
+    conditions.push(
+      `NOT EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status = 'READY') AND EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status IN ('SENT','CONFIRMED','REJECTED'))`
+    );
   }
 
   const clause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";

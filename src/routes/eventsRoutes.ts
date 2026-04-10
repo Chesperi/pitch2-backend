@@ -21,6 +21,7 @@ import {
   runGenerateAssignmentsFromStandard,
   setAssignmentsReadyForEvent,
   eventToApiJson,
+  getEventAssignmentsStatus,
 } from "../services/eventsService";
 
 const router = Router();
@@ -67,6 +68,10 @@ function parseListFilters(req: Request): EventListFilters {
   const onlyDesignable =
     String(req.query.onlyDesignable).toLowerCase() === "true" ||
     String(req.query.only_designable).toLowerCase() === "true";
+  const assignmentsStatus =
+    (req.query.assignments_status as string)?.trim() ||
+    (req.query.assignmentsStatus as string)?.trim() ||
+    undefined;
 
   return {
     q,
@@ -77,6 +82,19 @@ function parseListFilters(req: Request): EventListFilters {
     dateFrom,
     dateTo,
     onlyDesignable: onlyDesignable || undefined,
+    ...(assignmentsStatus ? { assignmentsStatus } : {}),
+  };
+}
+
+async function serializeEventWithAssignmentsStatus(
+  event: Parameters<typeof eventToApiJson>[0]
+): Promise<Record<string, unknown>> {
+  const base = eventToApiJson(event);
+  const assignmentsStatus = await getEventAssignmentsStatus(String(event.id));
+  return {
+    ...base,
+    assignments_status: assignmentsStatus,
+    assignmentsStatus,
   };
 }
 
@@ -209,7 +227,10 @@ router.get("/designable", async (_req: Request, res: Response) => {
     if (!(await requirePageRead(_req, res, "eventi"))) return;
     const pagination = parsePagination(_req);
     const { items, total } = await listDesignableEvents(pagination);
-    res.json({ items: items.map(eventToApiJson), total });
+    const serialized = await Promise.all(
+      items.map((event) => serializeEventWithAssignmentsStatus(event))
+    );
+    res.json({ items: serialized, total });
   } catch (err) {
     console.error("GET /api/events/designable error:", err);
     res.status(500).json({
@@ -225,7 +246,10 @@ router.get("/", async (req: Request, res: Response) => {
     const filters = parseListFilters(req);
     const pagination = parsePagination(req);
     const { items, total } = await listEvents(filters, pagination);
-    res.json({ items: items.map(eventToApiJson), total });
+    const serialized = await Promise.all(
+      items.map((event) => serializeEventWithAssignmentsStatus(event))
+    );
+    res.json({ items: serialized, total });
   } catch (err) {
     console.error("GET /api/events error:", err);
     res.status(500).json({
@@ -246,7 +270,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       res.status(404).json({ error: "Event not found" });
       return;
     }
-    res.json(eventToApiJson(event));
+    res.json(await serializeEventWithAssignmentsStatus(event));
   } catch (err) {
     console.error("GET /api/events/:id error:", err);
     res.status(500).json({
@@ -268,7 +292,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     const event = await createEvent(payload);
-    res.status(201).json(eventToApiJson(event));
+    res.status(201).json(await serializeEventWithAssignmentsStatus(event));
   } catch (err) {
     console.error("POST /api/events error:", err);
     res.status(500).json({
@@ -288,7 +312,7 @@ async function handleUpdate(req: Request, res: Response): Promise<void> {
     res.status(404).json({ error: "Event not found" });
     return;
   }
-  res.json(eventToApiJson(event));
+  res.json(await serializeEventWithAssignmentsStatus(event));
 }
 
 // PUT /api/events/:id
@@ -407,10 +431,22 @@ router.post("/:id/assignments-ready", async (req: Request, res: Response) => {
 
 // PATCH /api/events/:id/assignments-status — colonna `assignments_status` rimossa da `events`.
 router.patch("/:id/assignments-status", async (req: Request, res: Response) => {
-  if (!(await requirePageEdit(req, res, "eventi"))) return;
-  res.status(410).json({
-    error: "assignments_status non è più persistito sulla tabella events",
-  });
+  try {
+    if (!(await requirePageEdit(req, res, "eventi"))) return;
+    const eventId = parseEventId(req, res);
+    if (eventId === null) return;
+    const event = await getEventById(eventId);
+    if (!event) {
+      res.status(404).json({ error: "Event not found" });
+      return;
+    }
+    res.status(200).json(await serializeEventWithAssignmentsStatus(event));
+  } catch (err) {
+    console.error("PATCH /api/events/:id/assignments-status error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
 });
 
 export default router;

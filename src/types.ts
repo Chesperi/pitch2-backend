@@ -1,6 +1,7 @@
 import type { StaffId } from "./types/staffId";
 
 export type AssignmentStatus = "DRAFT" | "READY" | "SENT" | "CONFIRMED" | "REJECTED";
+export type EventAssignmentsStatus = "DRAFT" | "READY_TO_SEND" | "SENT";
 
 export interface Assignment {
   id: number;
@@ -69,6 +70,7 @@ export interface StandardRequirement {
   notes: string | null;
   facilities: string | null;
   studio: string | null;
+  coverageType: "FREELANCE" | "PROVIDER" | "EITHER";
 }
 
 /** Tabella `standard_cost` (Supabase / Postgres). */
@@ -124,6 +126,7 @@ export interface EventListFilters {
   dateFrom?: string;
   dateTo?: string;
   onlyDesignable?: boolean;
+  assignmentsStatus?: EventAssignmentsStatus | string;
 }
 
 export interface EventListPagination {

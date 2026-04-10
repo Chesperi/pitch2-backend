@@ -42,6 +42,8 @@ type ListRow = {
   role_name: string;
   status: string;
   notes: string | null;
+  request_car_pass: boolean | null;
+  plate_selected: string | null;
 };
 
 function formatKoItalyParts(
@@ -107,7 +109,7 @@ function rowToListItem(row: ListRow): MyAssignmentListItem {
     role_name: row.role_name,
     status: row.status,
     notes: row.notes,
-    plate_selected: null,
+    plate_selected: row.plate_selected,
   };
 }
 
@@ -128,7 +130,9 @@ export async function listMyAssignments(
        e.day AS event_location,
        COALESCE(NULLIF(TRIM(r.description), ''), r.role_code) AS role_name,
        a.status,
-       a.notes
+       a.notes,
+       a.request_car_pass,
+       a.plate_selected
      FROM assignments a
      INNER JOIN events e ON e.id = a.event_id
      INNER JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
@@ -166,7 +170,9 @@ export async function getMyAssignmentDetail(
        e.day AS event_location,
        COALESCE(NULLIF(TRIM(r.description), ''), r.role_code) AS role_name,
        a.status,
-       a.notes
+       a.notes,
+       a.request_car_pass,
+       a.plate_selected
      FROM assignments a
      INNER JOIN events e ON e.id = a.event_id
      INNER JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
@@ -216,6 +222,7 @@ export type UpdateMyAssignmentPayload = {
   notes?: string | null;
   request_car_pass?: boolean | null;
   plate_selected?: string | null;
+  status?: "REJECTED";
 };
 
 export async function updateMyAssignment(
@@ -233,6 +240,17 @@ export async function updateMyAssignment(
   if (payload.notes !== undefined) {
     fragments.push(`notes = $${n++}`);
     values.push(payload.notes);
+  }
+  if (payload.request_car_pass !== undefined) {
+    fragments.push(`request_car_pass = $${n++}`);
+    values.push(payload.request_car_pass);
+  }
+  if (payload.plate_selected !== undefined) {
+    fragments.push(`plate_selected = $${n++}`);
+    values.push(payload.plate_selected);
+  }
+  if (payload.status === "REJECTED") {
+    fragments.push(`status = 'REJECTED'`);
   }
 
   fragments.push(`updated_at = now()`);

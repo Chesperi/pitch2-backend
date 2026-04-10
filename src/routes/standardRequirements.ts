@@ -21,6 +21,7 @@ type StandardRequirementBody = {
   notes?: string | null;
   facilities?: string | null;
   studio?: string | null;
+  coverageType?: "FREELANCE" | "PROVIDER" | "EITHER";
 };
 
 function standardChangedFields(
@@ -44,6 +45,7 @@ function standardChangedFields(
     ch.push("facilities");
   }
   if ((before.studio ?? null) !== (after.studio ?? null)) ch.push("studio");
+  if (before.coverageType !== after.coverageType) ch.push("coverageType");
   return ch;
 }
 
@@ -84,6 +86,12 @@ function normalizeOptionalText(v: string | null | undefined): string | null {
   return t === "" ? null : t;
 }
 
+function normalizeCoverageType(v: unknown): "FREELANCE" | "PROVIDER" | "EITHER" {
+  const t = String(v ?? "FREELANCE").trim().toUpperCase();
+  if (t === "PROVIDER" || t === "EITHER") return t;
+  return "FREELANCE";
+}
+
 function rowToStandardRequirementWithRole(
   row: Record<string, unknown>
 ): StandardRequirementWithRole {
@@ -106,13 +114,18 @@ function rowToStandardRequirementWithRole(
       row.studio != null && String(row.studio).trim() !== ""
         ? String(row.studio).trim()
         : null,
+    coverageType:
+      String(row.coverage_type ?? "FREELANCE").toUpperCase() as
+        | "FREELANCE"
+        | "PROVIDER"
+        | "EITHER",
   };
 }
 
 const SELECT_COLS = `
   sr.id, sr.standard_onsite, sr.standard_cologno, sr.site, sr.area_produzione,
   sr.role_code, sr.role_location, sr.quantity, sr.notes,
-  sr.facilities, sr.studio,
+  sr.facilities, sr.studio, sr.coverage_type,
   r.description as role_description
 `;
 
@@ -291,11 +304,12 @@ router.post("/", async (req: Request, res: Response) => {
     const notes = normalizeNotes(body.notes);
     const facilities = normalizeOptionalText(body.facilities);
     const studio = normalizeOptionalText(body.studio);
+    const coverageType = normalizeCoverageType(body.coverageType);
 
     const insert = await pool.query<{ id: number }>(
       `INSERT INTO standard_requirements
-        (standard_onsite, standard_cologno, site, area_produzione, role_code, role_location, quantity, notes, facilities, studio)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        (standard_onsite, standard_cologno, site, area_produzione, role_code, role_location, quantity, notes, facilities, studio, coverage_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id`,
       [
         onsite,
@@ -308,6 +322,7 @@ router.post("/", async (req: Request, res: Response) => {
         notes,
         facilities,
         studio,
+        coverageType,
       ]
     );
 
@@ -341,6 +356,7 @@ router.post("/", async (req: Request, res: Response) => {
         notes: full.notes,
         facilities: full.facilities,
         studio: full.studio,
+        coverageType: full.coverageType,
       },
     });
 
@@ -475,6 +491,10 @@ async function updateStandardRequirementById(
       fields.push(`studio = $${p++}`);
       values.push(normalizeOptionalText(body.studio));
     }
+    if (body.coverageType !== undefined) {
+      fields.push(`coverage_type = $${p++}`);
+      values.push(normalizeCoverageType(body.coverageType));
+    }
 
     if (fields.length === 0) {
       res.status(400).json({ error: "No fields to update" });
@@ -513,6 +533,7 @@ async function updateStandardRequirementById(
           notes: full.notes,
           facilities: full.facilities,
           studio: full.studio,
+          coverageType: full.coverageType,
           changedFields,
         },
       });
