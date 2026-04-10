@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { pool } from "../db";
 import {
   requirePitch2Session,
   AuthenticatedRequest,
@@ -15,6 +16,7 @@ import {
   requirePageEdit,
   requirePageRead,
 } from "../middleware/requirePageAccess";
+import { resolveStaffDbIntegerId } from "../services/staffService";
 
 const router = Router();
 
@@ -32,6 +34,40 @@ function parseAssignmentIdParam(raw: string): number | null {
   if (!Number.isFinite(id) || id <= 0) return null;
   return id;
 }
+
+router.get(
+  "/car-plates",
+  requirePitch2Session,
+  async (req: Request, res: Response) => {
+    try {
+      const staffSessionId = (req as AuthenticatedRequest).staffId;
+      const staffPk = await resolveStaffDbIntegerId(staffSessionId);
+      if (staffPk == null) {
+        res.status(404).json({ plates: [] });
+        return;
+      }
+
+      const result = await pool.query<{ plates: string | null }>(
+        `SELECT plates
+         FROM staff
+         WHERE id = $1
+         LIMIT 1`,
+        [staffPk]
+      );
+
+      const raw = result.rows[0]?.plates ?? "";
+      const plates = String(raw)
+        .split(/[,\n]/)
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0);
+
+      res.status(200).json({ plates });
+    } catch (err) {
+      console.error("GET /api/my-assignments/car-plates error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
 
 router.get(
   "/",
