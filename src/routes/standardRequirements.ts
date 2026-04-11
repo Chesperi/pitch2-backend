@@ -95,6 +95,7 @@ function normalizeCoverageType(v: unknown): "FREELANCE" | "PROVIDER" | "EITHER" 
 function rowToStandardRequirementWithRole(
   row: Record<string, unknown>
 ): StandardRequirementWithRole {
+  const scid = row.standard_combo_id;
   return {
     id: row.id as number,
     standardOnsite: row.standard_onsite as string,
@@ -119,13 +120,17 @@ function rowToStandardRequirementWithRole(
         | "FREELANCE"
         | "PROVIDER"
         | "EITHER",
+    standardComboId:
+      scid != null && scid !== "" && !Number.isNaN(Number(scid))
+        ? Number(scid)
+        : null,
   };
 }
 
 const SELECT_COLS = `
   sr.id, sr.standard_onsite, sr.standard_cologno, sr.site, sr.area_produzione,
   sr.role_code, sr.role_location, sr.quantity, sr.notes,
-  sr.facilities, sr.studio, sr.coverage_type,
+  sr.facilities, sr.studio, sr.coverage_type, sr.standard_combo_id,
   r.description as role_description
 `;
 

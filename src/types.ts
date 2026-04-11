@@ -71,6 +71,8 @@ export interface StandardRequirement {
   facilities: string | null;
   studio: string | null;
   coverageType: "FREELANCE" | "PROVIDER" | "EITHER";
+  /** Presente se la riga appartiene a un pacchetto `standard_combos`. */
+  standardComboId?: number | null;
 }
 
 /** Tabella `standard_cost` (Supabase / Postgres). */
@@ -88,6 +90,21 @@ export interface StandardCost {
 
 export interface StandardRequirementWithRole extends StandardRequirement {
   roleDescription: string | null;
+}
+
+/** Riga in `standard_combos` (pacchetto standard). */
+export interface StandardCombo {
+  id: number;
+  standardOnsite: string;
+  standardCologno: string;
+  facilities: string | null;
+  studio: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface StandardComboWithRequirements extends StandardCombo {
+  requirements: StandardRequirementWithRole[];
 }
 
 /** Schema `events` Supabase (Excel). `id` è TEXT. */
