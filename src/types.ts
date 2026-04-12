@@ -320,3 +320,19 @@ export interface ImportPreviewItem {
   already_exists: boolean;
   suggested_fields: AppliedRuleFields; // campi pre-compilati dalle regole
 }
+
+export interface LookupValue {
+  id: number;
+  category: string;
+  value: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface CreateLookupValuePayload {
+  category: string;
+  value: string;
+  sort_order?: number;
+}
+
+export type UpdateLookupValuePayload = Partial<CreateLookupValuePayload>;

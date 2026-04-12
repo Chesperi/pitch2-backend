@@ -31,6 +31,7 @@ import accreditationAreasRouter from "./routes/accreditationAreasRoutes";
 import productionContactsLeedsRouter from "./routes/productionContactsLeeds";
 import standardCostRouter from "./routes/standardCost";
 import eventRulesRouter from "./routes/eventRulesRoutes";
+import lookupValuesRouter from "./routes/lookupValuesRoutes";
 
 validateSupabaseConfig();
 
@@ -65,6 +66,7 @@ app.use("/api/my-assignments", myAssignmentsRouter);
 app.use("/api/magic-links", magicLinksRouter);
 app.use("/api/standard-requirements", standardRequirementsRouter);
 app.use("/api/standard-combos", standardCombosRouter);
+app.use("/api/lookup-values", lookupValuesRouter);
 app.use("/api/standard-cost", standardCostRouter);
 app.use("/api/event-rules", eventRulesRouter);
 app.use("/api/cookies-jar/tasks", cookiesJarTasksRouter);
