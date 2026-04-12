@@ -7,6 +7,7 @@ import rolesRouter from "./routes/roles";
 import staffRouter from "./routes/staff";
 import staffSearchRouter from "./routes/staffRoutes";
 import eventsRouter from "./routes/eventsRoutes";
+import eventsImportRouter from "./routes/eventsImportRoutes";
 import assignmentsRouter from "./routes/assignments";
 import designazioniRouter from "./routes/designazioni";
 import authRouter from "./routes/auth";
@@ -29,6 +30,7 @@ import accreditiXlsxRouter from "./routes/accreditiXlsxRoutes";
 import accreditationAreasRouter from "./routes/accreditationAreasRoutes";
 import productionContactsLeedsRouter from "./routes/productionContactsLeeds";
 import standardCostRouter from "./routes/standardCost";
+import eventRulesRouter from "./routes/eventRulesRoutes";
 
 validateSupabaseConfig();
 
@@ -54,6 +56,7 @@ app.get("/health", (_req, res) => {
 app.use("/api/roles", rolesRouter);
 app.use("/api/staff", staffRouter);
 app.use("/api/staff", staffSearchRouter);
+app.use("/api/events/import", eventsImportRouter);
 app.use("/api/events", eventsRouter);
 app.use("/api/assignments", assignmentsRouter);
 app.use("/api/designazioni", designazioniRouter);
@@ -63,6 +66,7 @@ app.use("/api/magic-links", magicLinksRouter);
 app.use("/api/standard-requirements", standardRequirementsRouter);
 app.use("/api/standard-combos", standardCombosRouter);
 app.use("/api/standard-cost", standardCostRouter);
+app.use("/api/event-rules", eventRulesRouter);
 app.use("/api/cookies-jar/tasks", cookiesJarTasksRouter);
 app.use("/api/documents", documentsRouter);
 app.use("/api/agent", agentRouter);

@@ -249,3 +249,74 @@ export interface GetAccreditiExportMetaResponse {
   areaMappings: { roleCode: string; areas: string }[];
   areaLegends: { areaCode: string; description: string }[];
 }
+
+export interface EventRule {
+  id: number;
+  competition_name: string | null;
+  day_of_week: number | null; // 0=domenica, 1=lunedì ... 6=sabato
+  ko_time_from: string | null; // "HH:MM"
+  ko_time_to: string | null;
+  standard_onsite: string | null;
+  standard_cologno: string | null;
+  facilities: string | null;
+  studio: string | null;
+  show_name: string | null;
+  pre_duration_minutes: number | null;
+  priority: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateEventRulePayload {
+  competition_name?: string;
+  day_of_week?: number;
+  ko_time_from?: string;
+  ko_time_to?: string;
+  standard_onsite?: string;
+  standard_cologno?: string;
+  facilities?: string;
+  studio?: string;
+  show_name?: string;
+  pre_duration_minutes?: number;
+  priority?: number;
+  notes?: string;
+}
+
+export type UpdateEventRulePayload = Partial<CreateEventRulePayload>;
+
+// Risultato apply-rules su un evento
+export interface AppliedRuleFields {
+  standard_onsite?: string;
+  standard_cologno?: string;
+  facilities?: string;
+  studio?: string;
+  show_name?: string;
+  pre_duration_minutes?: number;
+  standard_combo_id?: number;
+}
+
+// Import da football-data.org
+export interface FootballDataMatch {
+  id: number;
+  utcDate: string;
+  homeTeam: { name: string; shortName: string };
+  awayTeam: { name: string; shortName: string };
+  matchday: number;
+  venue: string | null;
+  competition: { name: string; code: string };
+}
+
+export interface ImportPreviewItem {
+  external_match_id: string;
+  competition_name: string;
+  competition_code: string;
+  matchday: number;
+  home_team: string;
+  away_team: string;
+  ko_utc: string;
+  ko_italy: string; // ISO locale Italia
+  venue: string | null;
+  already_exists: boolean;
+  suggested_fields: AppliedRuleFields; // campi pre-compilati dalle regole
+}
