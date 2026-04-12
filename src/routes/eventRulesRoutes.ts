@@ -15,7 +15,7 @@ import type { CreateEventRulePayload, UpdateEventRulePayload } from "../types";
 
 const router = Router();
 
-const PAGE_KEY = "master";
+const PAGE_KEY = "database";
 
 function parseIdParam(raw: string): number | null {
   const id = Number(raw);
