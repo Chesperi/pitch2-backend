@@ -17,6 +17,7 @@ import {
   createEvent,
   updateEvent,
   softCancelEvent,
+  deleteEventPermanently,
   eventExists,
   runGenerateAssignmentsFromStandard,
   setAssignmentsReadyForEvent,
@@ -340,6 +341,27 @@ router.patch("/:id", async (req: Request, res: Response) => {
     await handleUpdate(req, res);
   } catch (err) {
     console.error("PATCH /api/events/:id error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
+// DELETE /api/events/:id/permanent — rimozione riga da DB (prima di /:id)
+router.delete("/:id/permanent", async (req: Request, res: Response) => {
+  try {
+    if (!(await requirePageEdit(req, res, "eventi"))) return;
+    const id = parseEventId(req, res);
+    if (id === null) return;
+
+    const ok = await deleteEventPermanently(id);
+    if (!ok) {
+      res.status(404).json({ error: "Event not found" });
+      return;
+    }
+    res.status(204).send();
+  } catch (err) {
+    console.error("DELETE /api/events/:id/permanent error:", err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "Internal server error",
     });

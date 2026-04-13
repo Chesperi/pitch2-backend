@@ -469,6 +469,11 @@ export async function softCancelEvent(id: string): Promise<boolean> {
   return true;
 }
 
+export async function deleteEventPermanently(id: string): Promise<boolean> {
+  const result = await pool.query(`DELETE FROM events WHERE id = $1`, [id]);
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function eventExists(id: string): Promise<boolean> {
   const r = await pool.query("SELECT 1 FROM events WHERE id = $1", [id]);
   return r.rows.length > 0;

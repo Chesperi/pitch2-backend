@@ -10,6 +10,8 @@ export interface ParsedMatch {
   licenziatario: string; // DAZN oppure SKY/DAZN
   matchday: number; // giornata estratta dall'intestazione
   is_top_match: boolean;
+  /** Se valorizzato, viene normalizzato in title case in chiusura del parse. */
+  show_name?: string;
 }
 
 const WORD_MATCHDAY: Record<string, number> = {
@@ -46,8 +48,29 @@ function normalizeTime(value: string): string {
   return value.trim().replace(".", ",").replace(",", ":");
 }
 
-function normalizeTeam(value: string): string {
-  return value.replace(/\s+/g, " ").trim().toUpperCase();
+/** Spazi compressi, senza forzare maiuscole (per title case sui nomi). */
+function trimCollapseSpaces(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Title case per parole separate da spazio (es. MILAN → Milan, HELLAS VERONA → Hellas Verona).
+ * Usa locale `it-IT` per minuscole/maiuscole corrette.
+ */
+export function titleCaseDisplayWords(value: string): string {
+  const collapsed = trimCollapseSpaces(value);
+  if (!collapsed) return "";
+  return collapsed
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => {
+      const lower = word.toLocaleLowerCase("it-IT");
+      if (!lower) return word;
+      return (
+        lower.charAt(0).toLocaleUpperCase("it-IT") + lower.slice(1)
+      );
+    })
+    .join(" ");
 }
 
 type HeaderHit = { start: number; end: number; n: number };
@@ -153,12 +176,14 @@ export async function parsePdfSerieA(buffer: Buffer): Promise<ParsedMatch[]> {
       const starGroup = rowMatch[6];
       const isTop = Boolean(starGroup && /\*/.test(starGroup));
 
+      const homeRaw = trimCollapseSpaces(rowMatch[4]);
+      const awayRaw = trimCollapseSpaces(rowMatch[5]);
       out.push({
         data: rowMatch[1],
         giorno: rowMatch[2],
         orario: normalizeTime(rowMatch[3]),
-        home_team: normalizeTeam(rowMatch[4]),
-        away_team: normalizeTeam(rowMatch[5]),
+        home_team: titleCaseDisplayWords(homeRaw),
+        away_team: titleCaseDisplayWords(awayRaw),
         licenziatario: normalizeLicense(rowMatch[7]),
         matchday: effectiveMd,
         is_top_match: isTop,
@@ -171,5 +196,9 @@ export async function parsePdfSerieA(buffer: Buffer): Promise<ParsedMatch[]> {
     }
   }
 
-  return out;
+  return out.map((r) =>
+    r.show_name != null && String(r.show_name).trim() !== ""
+      ? { ...r, show_name: titleCaseDisplayWords(String(r.show_name)) }
+      : r
+  );
 }
