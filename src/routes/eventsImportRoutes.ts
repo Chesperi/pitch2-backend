@@ -4,6 +4,7 @@ import type { ImportPreviewItem } from "../types";
 import {
   fetchMatchesByCompetition,
   buildImportPreview,
+  SUPPORTED_COMPETITIONS,
 } from "../services/footballDataService";
 import {
   listExternalMatchIdsForCompetition,
@@ -96,7 +97,7 @@ router.post(
       });
 
       const existingExternalIds = await listExternalMatchIdsForCompetition(
-        codeUpper
+        SUPPORTED_COMPETITIONS[codeUpper]
       );
 
       const preview = await buildImportPreview({
@@ -151,10 +152,7 @@ router.post(
           continue;
         }
 
-        const exists = await eventExistsByExternalMatch(
-          item.competition_code,
-          extId
-        );
+        const exists = await eventExistsByExternalMatch(extId);
         if (exists) {
           skipped++;
           continue;

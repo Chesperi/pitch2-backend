@@ -34,30 +34,28 @@ export function splitKoItalyForDb(koItalyIso: string): {
 }
 
 export async function listExternalMatchIdsForCompetition(
-  competitionCode: string
+  competitionName: string
 ): Promise<string[]> {
-  const code = competitionCode.trim().toUpperCase();
+  const name = competitionName.trim();
   const result = await pool.query<{ ext: string }>(
     `SELECT external_match_id::text AS ext
      FROM events
-     WHERE competition_code IS NOT NULL
-       AND UPPER(TRIM(competition_code)) = $1
+     WHERE competition_name IS NOT NULL
+       AND UPPER(TRIM(competition_name)) = UPPER(TRIM($1))
        AND external_match_id IS NOT NULL`,
-    [code]
+    [name]
   );
   return result.rows.map((r) => r.ext);
 }
 
 export async function eventExistsByExternalMatch(
-  competitionCode: string,
   externalMatchId: number
 ): Promise<boolean> {
   const r = await pool.query(
     `SELECT 1 FROM events
-     WHERE UPPER(TRIM(competition_code)) = UPPER(TRIM($1))
-       AND external_match_id = $2
+     WHERE external_match_id = $1
      LIMIT 1`,
-    [competitionCode, externalMatchId]
+    [externalMatchId]
   );
   return (r.rowCount ?? 0) > 0;
 }
