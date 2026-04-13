@@ -85,13 +85,13 @@ export async function insertEventFromImportItem(
 
   await pool.query(
     `INSERT INTO events (
-      id, category, date, status, competition_name, competition_code, external_match_id,
+      id, category, date, status, competition_name, external_match_id,
       matchday, day, ko_italy_time, pre_duration_minutes,
       home_team_name_short, away_team_name_short, venue_name,
       standard_onsite, standard_cologno, facilities, studio, show_name,
       standard_combo_id, rights_holder, client, format_name, episode, name_episode, start_time, notes
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27
     )`,
     [
       id,
@@ -99,7 +99,6 @@ export async function insertEventFromImportItem(
       date,
       "TBC",
       item.competition_name,
-      item.competition_code.trim().toUpperCase(),
       extId,
       matchday,
       null,
