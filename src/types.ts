@@ -132,6 +132,7 @@ export interface Event {
   nameEpisode: string | null;
   startTime: string | null;
   notes: string | null;
+  isTopMatch: boolean;
 }
 
 export interface EventListFilters {
@@ -175,6 +176,7 @@ export interface EventCreatePayload {
   nameEpisode?: string | null;
   startTime?: string | null;
   notes?: string | null;
+  isTopMatch?: boolean;
 }
 
 export type EventUpdatePayload = Partial<EventCreatePayload>;
@@ -294,6 +296,8 @@ export interface AppliedRuleFields {
   show_name?: string;
   pre_duration_minutes?: number;
   standard_combo_id?: number;
+  is_top_match?: boolean;
+  rights_holder?: string;
 }
 
 // Import da football-data.org
@@ -319,6 +323,8 @@ export interface ImportPreviewItem {
   venue: string | null;
   already_exists: boolean;
   suggested_fields: AppliedRuleFields; // campi pre-compilati dalle regole
+  /** Da PDF Serie A: licenziatario (DAZN / SKY/DAZN). */
+  rights_holder?: string | null;
 }
 
 export interface LookupValue {

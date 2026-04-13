@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import express, { Router, Request, Response } from "express";
 import { requirePageEdit } from "../middleware/requirePageAccess";
 import type { ImportPreviewItem } from "../types";
 import {
@@ -10,7 +10,11 @@ import {
   listExternalMatchIdsForCompetition,
   insertEventFromImportItem,
   eventExistsByExternalMatch,
+  composeKoItalyFromParts,
+  generateZonaEvents,
 } from "../services/eventsImportService";
+import { parsePdfSerieA, type ParsedMatch } from "../services/pdfSerieAParser";
+import { applyRulesToEvent } from "../services/eventRulesService";
 
 const router = Router();
 
@@ -43,11 +47,18 @@ function normalizeImportItem(raw: unknown): ImportPreviewItem | null {
   const suggested_fields = {
     ...(typeof sf === "object" && sf != null ? sf : {}),
   } as ImportPreviewItem["suggested_fields"];
+  if (typeof o.is_top_match === "boolean") {
+    suggested_fields.is_top_match = o.is_top_match;
+  }
 
   const external_match_id = String(
     o.external_match_id ?? o.externalMatchId ?? ""
   ).trim();
   if (!external_match_id) return null;
+
+  const rh = o.rights_holder ?? o.rightsHolder;
+  const rights_holder =
+    rh === undefined || rh === null ? undefined : String(rh);
 
   return {
     external_match_id,
@@ -64,8 +75,80 @@ function normalizeImportItem(raw: unknown): ImportPreviewItem | null {
         : String(o.venue),
     already_exists: Boolean(o.already_exists ?? o.alreadyExists),
     suggested_fields,
+    ...(rights_holder !== undefined ? { rights_holder } : {}),
   };
 }
+
+function buildPdfSerieAExternalId(row: ParsedMatch): string {
+  const d = row.data.replace(/\//g, "-");
+  const h = row.home_team.toLowerCase().replace(/\s+/g, "-");
+  const a = row.away_team.toLowerCase().replace(/\s+/g, "-");
+  return `pdf-sa-${d}-${h}-${a}`;
+}
+
+router.post(
+  "/pdf-preview",
+  express.raw({
+    type: ["application/pdf", "application/octet-stream"],
+    limit: "30mb",
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      if (!(await requirePageEdit(req, res, "eventi"))) return;
+
+      const buf = req.body;
+      if (!Buffer.isBuffer(buf) || buf.length === 0) {
+        res.status(400).json({
+          error: "Invia il PDF come body raw (Content-Type: application/pdf)",
+        });
+        return;
+      }
+
+      const competition_name = "Serie A";
+      const competition_code = "SA";
+
+      const parsed = await parsePdfSerieA(buf);
+      const items: ImportPreviewItem[] = [];
+
+      for (const row of parsed) {
+        const ko_italy = composeKoItalyFromParts(row.data, row.orario);
+        if (!ko_italy) continue;
+        const koUtc = new Date(ko_italy).toISOString();
+        const external_match_id = buildPdfSerieAExternalId(row);
+        const already_exists = await eventExistsByExternalMatch(external_match_id);
+        const baseSuggested = await applyRulesToEvent({
+          competition_name,
+          ko_italy,
+        });
+        const suggested_fields: ImportPreviewItem["suggested_fields"] = {
+          ...baseSuggested,
+          is_top_match: row.is_top_match,
+        };
+        items.push({
+          external_match_id,
+          competition_name,
+          competition_code,
+          matchday: row.matchday,
+          home_team: row.home_team,
+          away_team: row.away_team,
+          ko_utc: koUtc,
+          ko_italy,
+          venue: null,
+          already_exists,
+          suggested_fields,
+          rights_holder: row.licenziatario,
+        });
+      }
+
+      res.json(items);
+    } catch (e) {
+      console.error("POST /api/events/import/pdf-preview", e);
+      res.status(500).json({
+        error: e instanceof Error ? e.message : "Internal server error",
+      });
+    }
+  }
+);
 
 router.post(
   "/preview",
@@ -133,6 +216,7 @@ router.post(
 
       let imported = 0;
       let skipped = 0;
+      const importedItems: ImportPreviewItem[] = [];
 
       for (const raw of rawItems) {
         const item = normalizeImportItem(raw);
@@ -146,13 +230,7 @@ router.post(
           continue;
         }
 
-        const extId = parseInt(item.external_match_id, 10);
-        if (!Number.isFinite(extId)) {
-          skipped++;
-          continue;
-        }
-
-        const exists = await eventExistsByExternalMatch(extId);
+        const exists = await eventExistsByExternalMatch(item.external_match_id);
         if (exists) {
           skipped++;
           continue;
@@ -161,13 +239,17 @@ router.post(
         try {
           await insertEventFromImportItem(item);
           imported++;
+          importedItems.push(item);
         } catch (err) {
           console.error("import confirm row", err);
           skipped++;
         }
       }
 
-      res.json({ imported, skipped });
+      const confirmedKos = [...new Set(importedItems.map((i) => i.ko_italy))];
+      const zona_created = await generateZonaEvents(importedItems, confirmedKos);
+
+      res.json({ imported, skipped, zona_created });
     } catch (e) {
       console.error("POST /api/events/import/confirm", e);
       res.status(500).json({

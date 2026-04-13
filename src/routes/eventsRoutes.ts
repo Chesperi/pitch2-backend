@@ -159,6 +159,10 @@ function parseCreatePayload(body: Record<string, unknown>): EventCreatePayload |
     nameEpisode: (body.name_episode ?? body.nameEpisode) as string | null | undefined,
     startTime: (body.start_time ?? body.startTime) as string | null | undefined,
     notes: (body.notes as string) ?? undefined,
+    isTopMatch:
+      body.is_top_match !== undefined || body.isTopMatch !== undefined
+        ? Boolean(body.is_top_match ?? body.isTopMatch)
+        : undefined,
   };
 }
 
@@ -218,6 +222,9 @@ function parseUpdatePayload(body: Record<string, unknown>): EventUpdatePayload {
     p.startTime = (body.start_time ?? body.startTime) as string | null;
   }
   if (body.notes !== undefined) p.notes = body.notes as string | null;
+  if (body.is_top_match !== undefined || body.isTopMatch !== undefined) {
+    p.isTopMatch = Boolean(body.is_top_match ?? body.isTopMatch);
+  }
   return p;
 }
 

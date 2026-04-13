@@ -36,6 +36,7 @@ const EVENT_COLUMNS = [
   "name_episode",
   "start_time",
   "notes",
+  "is_top_match",
 ].join(", ");
 
 function combineKoDisplay(date: string | null, time: string | null): string | null {
@@ -88,6 +89,7 @@ function mapRowToEvent(row: Record<string, unknown>): Event {
     nameEpisode: row.name_episode != null ? String(row.name_episode) : null,
     startTime: row.start_time != null ? String(row.start_time) : null,
     notes: row.notes != null ? String(row.notes) : null,
+    isTopMatch: Boolean(row.is_top_match),
   };
 }
 
@@ -120,6 +122,8 @@ export function eventToApiJson(e: Event): Record<string, unknown> {
     name_episode: e.nameEpisode,
     start_time: e.startTime,
     notes: e.notes,
+    is_top_match: e.isTopMatch,
+    isTopMatch: e.isTopMatch,
   };
 }
 
@@ -332,9 +336,9 @@ export async function createEvent(payload: EventCreatePayload): Promise<Event> {
       id, category, date, status, competition_name, matchday, day, ko_italy_time,
       pre_duration_minutes, home_team_name_short, away_team_name_short, rights_holder,
       standard_onsite, standard_cologno, facilities, studio, show_name, client, format_name,
-      episode, name_episode, start_time, notes
+      episode, name_episode, start_time, notes, is_top_match
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
     )
     RETURNING ${EVENT_COLUMNS}`,
     [
@@ -361,6 +365,7 @@ export async function createEvent(payload: EventCreatePayload): Promise<Event> {
       payload.nameEpisode ?? null,
       payload.startTime ?? null,
       payload.notes ?? null,
+      payload.isTopMatch ?? false,
     ]
   );
 
@@ -399,6 +404,7 @@ const UPDATE_FIELD_MAP: Array<{
   { col: "name_episode", pick: (p) => p.nameEpisode },
   { col: "start_time", pick: (p) => p.startTime },
   { col: "notes", pick: (p) => p.notes },
+  { col: "is_top_match", pick: (p) => p.isTopMatch },
 ];
 
 export async function updateEvent(
