@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { pool } from "../db";
 import type { ImportPreviewItem } from "../types";
 
@@ -63,60 +62,56 @@ export async function eventExistsByExternalMatch(
 export async function insertEventFromImportItem(
   item: ImportPreviewItem
 ): Promise<void> {
-  const extId = parseInt(item.external_match_id, 10);
-  if (!Number.isFinite(extId)) {
-    throw new Error("external_match_id non valido");
-  }
+  const query = `
+  INSERT INTO events (
+    id, category, date, status, competition_name, external_match_id,
+    matchday, day, ko_italy_time, pre_duration_minutes,
+    home_team_name_short, away_team_name_short, venue_name,
+    standard_onsite, standard_cologno, facilities, studio, show_name,
+    standard_combo_id, rights_holder, client, format_name, episode,
+    name_episode, start_time, notes
+  ) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+    $21, $22, $23, $24, $25, $26
+  )
+`;
 
-  const { date, koItalyTime } = splitKoItalyForDb(item.ko_italy);
   const sf = item.suggested_fields ?? {};
-  const pre =
-    sf.pre_duration_minutes != null &&
-    !Number.isNaN(Number(sf.pre_duration_minutes))
-      ? Number(sf.pre_duration_minutes)
-      : 0;
+  const { date: dateStr, koItalyTime } = splitKoItalyForDb(item.ko_italy);
+  const extId = String(item.external_match_id);
+  const matchday = item.matchday ?? null;
+  const pre = sf.pre_duration_minutes ?? null;
+  const id = `import-${extId}`;
 
-  const matchday =
-    item.matchday != null && item.matchday > 0 ? item.matchday : null;
+  const values = [
+    id, // $1  id
+    "MATCH", // $2  category
+    dateStr, // $3  date
+    "TBC", // $4  status
+    item.competition_name, // $5  competition_name
+    extId, // $6  external_match_id
+    matchday, // $7  matchday
+    null, // $8  day
+    koItalyTime, // $9  ko_italy_time
+    pre, // $10 pre_duration_minutes
+    item.home_team, // $11 home_team_name_short
+    item.away_team, // $12 away_team_name_short
+    item.venue ?? null, // $13 venue_name
+    sf.standard_onsite ?? null, // $14 standard_onsite
+    sf.standard_cologno ?? null, // $15 standard_cologno
+    sf.facilities ?? null, // $16 facilities
+    sf.studio ?? null, // $17 studio
+    sf.show_name ?? null, // $18 show_name
+    sf.standard_combo_id ?? null, // $19 standard_combo_id
+    null, // $20 rights_holder
+    null, // $21 client
+    null, // $22 format_name
+    null, // $23 episode
+    null, // $24 name_episode
+    null, // $25 start_time
+    null, // $26 notes
+  ];
 
-  const id = randomUUID();
-
-  await pool.query(
-    `INSERT INTO events (
-      id, category, date, status, competition_name, external_match_id,
-      matchday, day, ko_italy_time, pre_duration_minutes,
-      home_team_name_short, away_team_name_short, venue_name,
-      standard_onsite, standard_cologno, facilities, studio, show_name,
-      standard_combo_id, rights_holder, client, format_name, episode, name_episode, start_time, notes
-    ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
-    )`,
-    [
-      id,
-      "MATCH",
-      date,
-      "TBC",
-      item.competition_name,
-      extId,
-      matchday,
-      null,
-      koItalyTime,
-      pre,
-      item.home_team,
-      item.away_team,
-      item.venue,
-      sf.standard_onsite ?? null,
-      sf.standard_cologno ?? null,
-      sf.facilities ?? null,
-      sf.studio ?? null,
-      sf.show_name ?? null,
-      sf.standard_combo_id ?? null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-    ]
-  );
+  await pool.query(query, values);
 }
