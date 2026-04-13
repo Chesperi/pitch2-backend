@@ -46,11 +46,26 @@ function combineKoDisplay(date: string | null, time: string | null): string | nu
   return d || t || null;
 }
 
+function toIsoDateOnly(v: unknown): string | null {
+  if (v == null) return null;
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return null;
+    return v.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return null;
+}
+
 function mapRowToEvent(row: Record<string, unknown>): Event {
   return {
     id: String(row.id ?? ""),
     category: String(row.category ?? ""),
-    date: row.date != null ? String(row.date).slice(0, 10) : null,
+    date: toIsoDateOnly(row.date),
     status: row.status != null ? String(row.status) : null,
     competitionName: String(row.competition_name ?? ""),
     matchday: row.matchday != null ? Number(row.matchday) : null,
@@ -129,7 +144,7 @@ export async function getEventAssignmentsStatus(
 
 function mapRowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWithJoins {
   const ko = combineKoDisplay(
-    row.e_date != null ? String(row.e_date).slice(0, 10) : null,
+    toIsoDateOnly(row.e_date),
     row.e_ko_italy_time != null ? String(row.e_ko_italy_time) : null
   );
   return {
