@@ -89,7 +89,7 @@ export async function insertEventFromImportItem(
       standard_onsite, standard_cologno, facilities, studio, show_name,
       standard_combo_id, rights_holder, client, format_name, episode, name_episode, start_time, notes
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
     )`,
     [
       id,
@@ -111,7 +111,6 @@ export async function insertEventFromImportItem(
       sf.studio ?? null,
       sf.show_name ?? null,
       sf.standard_combo_id ?? null,
-      null,
       null,
       null,
       null,
