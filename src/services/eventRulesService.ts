@@ -98,31 +98,31 @@ export async function updateEventRule(
   };
 
   if (payload.competition_name !== undefined) {
-    set("competition_name", payload.competition_name.trim() || null);
+    set("competition_name", payload.competition_name?.trim() ?? null);
   }
   if (payload.day_of_week !== undefined) {
     set("day_of_week", payload.day_of_week);
   }
   if (payload.ko_time_from !== undefined) {
-    set("ko_time_from", payload.ko_time_from.trim() || null);
+    set("ko_time_from", payload.ko_time_from?.trim() ?? null);
   }
   if (payload.ko_time_to !== undefined) {
-    set("ko_time_to", payload.ko_time_to.trim() || null);
+    set("ko_time_to", payload.ko_time_to?.trim() ?? null);
   }
   if (payload.standard_onsite !== undefined) {
-    set("standard_onsite", payload.standard_onsite.trim() || null);
+    set("standard_onsite", payload.standard_onsite?.trim() ?? null);
   }
   if (payload.standard_cologno !== undefined) {
-    set("standard_cologno", payload.standard_cologno.trim() || null);
+    set("standard_cologno", payload.standard_cologno?.trim() ?? null);
   }
   if (payload.facilities !== undefined) {
-    set("facilities", payload.facilities.trim() || null);
+    set("facilities", payload.facilities?.trim() ?? null);
   }
   if (payload.studio !== undefined) {
-    set("studio", payload.studio.trim() || null);
+    set("studio", payload.studio?.trim() ?? null);
   }
   if (payload.show_name !== undefined) {
-    set("show_name", payload.show_name.trim() || null);
+    set("show_name", payload.show_name?.trim() ?? null);
   }
   if (payload.pre_duration_minutes !== undefined) {
     set("pre_duration_minutes", payload.pre_duration_minutes);
@@ -131,7 +131,7 @@ export async function updateEventRule(
     set("priority", payload.priority);
   }
   if (payload.notes !== undefined) {
-    set("notes", payload.notes.trim() || null);
+    set("notes", payload.notes?.trim() ?? null);
   }
 
   if (fields.length === 0) {
