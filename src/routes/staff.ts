@@ -192,7 +192,7 @@ router.get("/", async (req: Request, res) => {
     const location = (req.query.location as string)?.trim() || "";
     const limit = Math.min(
       Math.max(parseInt(String(req.query.limit), 10) || 50, 1),
-      100
+      1000
     );
     const offset = Math.max(parseInt(String(req.query.offset), 10) || 0, 0);
 

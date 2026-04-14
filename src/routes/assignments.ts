@@ -397,6 +397,13 @@ router.patch("/:id", async (req: Request, res) => {
       updates.push(`staff_id = $${paramIdx}`);
       values.push(resolved);
       paramIdx++;
+
+      // Quando si rimuove la persona dallo slot, lo stato torna a DRAFT.
+      if (resolved === null && status === undefined) {
+        updates.push(`status = $${paramIdx}`);
+        values.push("DRAFT");
+        paramIdx++;
+      }
     }
 
     if (typeof status === "string") {
