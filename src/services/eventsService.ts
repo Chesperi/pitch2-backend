@@ -112,8 +112,8 @@ export async function findMatchingComboId(
        AND standard_cologno = $2
        AND facilities = $3
        AND (
-         ($4 IS NULL AND (studio IS NULL OR studio = '-'))
-         OR studio = $4
+         ($4::text IS NULL AND (studio IS NULL OR studio = '-'))
+         OR studio = $4::text
        )
      LIMIT 1`,
     [onsiteNorm, colognoNorm, facilitiesNorm, studioNorm]
