@@ -36,8 +36,30 @@ export async function ensureAssignmentsForEvent(
   if (!standardOnsite || !standardCologno) return;
   if (!["OK", "CONFIRMED"].includes(event.status)) return;
 
-  const requirementsWhere = "sr.standard_onsite = $1 AND sr.standard_cologno = $2";
-  const requirementsParams: unknown[] = [standardOnsite, standardCologno];
+  // Se il combo è cambiato, rimuove gli slot legacy/vecchio combo
+  // solo se ancora non assegnati (DRAFT + staff_id NULL).
+  if (event.standard_combo_id != null) {
+    await pool.query(
+      `DELETE FROM assignments
+       WHERE event_id = $1
+         AND staff_id IS NULL
+         AND status = 'DRAFT'
+         AND (
+           generated_from_combo_id IS NULL
+           OR generated_from_combo_id <> $2
+         )`,
+      [eventId, event.standard_combo_id]
+    );
+  }
+
+  const requirementsWhere =
+    event.standard_combo_id != null
+      ? "sr.standard_combo_id = $1"
+      : "sr.standard_onsite = $1 AND sr.standard_cologno = $2";
+  const requirementsParams: unknown[] =
+    event.standard_combo_id != null
+      ? [event.standard_combo_id]
+      : [standardOnsite, standardCologno];
 
   const requirementsResult = await pool.query(
     `SELECT sr.role_code, sr.role_location, sr.quantity
