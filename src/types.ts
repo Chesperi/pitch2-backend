@@ -159,6 +159,7 @@ export interface EventCreatePayload {
   category: string;
   date?: string | null;
   status?: string | null;
+  standardComboId?: number | null;
   competitionName: string;
   matchday?: number | null;
   day?: string | null;

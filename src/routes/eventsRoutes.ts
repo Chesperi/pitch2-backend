@@ -25,6 +25,7 @@ import {
   getEventAssignmentsStatus,
   bulkUpdateEventStatus,
   normalizeEventStatusInput,
+  autoMatchEventCombosAndListUnmatched,
 } from "../services/eventsService";
 
 const router = Router();
@@ -126,6 +127,15 @@ function parseCreatePayload(body: Record<string, unknown>): EventCreatePayload |
     id,
     category: category.trim(),
     competitionName: competitionName.trim(),
+    standardComboId:
+      body.standard_combo_id !== undefined || body.standardComboId !== undefined
+        ? (() => {
+            const raw = body.standard_combo_id ?? body.standardComboId;
+            if (raw === null || raw === "") return null;
+            const n = Number(raw);
+            return Number.isFinite(n) ? n : null;
+          })()
+        : undefined,
     date: (body.date as string | null | undefined) ?? undefined,
     status: (body.status as string | null | undefined) ?? undefined,
     matchday:
@@ -174,6 +184,15 @@ function parseUpdatePayload(body: Record<string, unknown>): EventUpdatePayload {
   if (body.category !== undefined) p.category = String(body.category);
   if (body.date !== undefined) p.date = body.date as string | null;
   if (body.status !== undefined) p.status = body.status as string | null;
+  if (body.standard_combo_id !== undefined || body.standardComboId !== undefined) {
+    const raw = body.standard_combo_id ?? body.standardComboId;
+    if (raw === null || raw === "") {
+      p.standardComboId = null;
+    } else {
+      const n = Number(raw);
+      p.standardComboId = Number.isFinite(n) ? n : null;
+    }
+  }
   if (body.competition_name !== undefined || body.competitionName !== undefined) {
     p.competitionName = String(body.competition_name ?? body.competitionName);
   }
@@ -341,6 +360,20 @@ router.patch("/bulk-delete", async (req: Request, res: Response) => {
     res.status(200).json({ requested: ids.length, updated });
   } catch (err) {
     console.error("PATCH /api/events/bulk-delete error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
+// POST /api/events/auto-match-combos — prima di /:id
+router.post("/auto-match-combos", async (req: Request, res: Response) => {
+  try {
+    if (!(await requirePageEdit(req, res, "eventi"))) return;
+    const result = await autoMatchEventCombosAndListUnmatched();
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("POST /api/events/auto-match-combos error:", err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "Internal server error",
     });

@@ -82,6 +82,46 @@ function toIsoDateOnly(v: unknown): string | null {
   return null;
 }
 
+function normalizeTextOrNull(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s === "" ? null : s;
+}
+
+function hasOwn(obj: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+export async function findMatchingComboId(
+  onsite: string | null | undefined,
+  cologno: string | null | undefined,
+  facilities: string | null | undefined,
+  studio: string | null | undefined
+): Promise<number | null> {
+  const onsiteNorm = normalizeTextOrNull(onsite);
+  const colognoNorm = normalizeTextOrNull(cologno);
+  const facilitiesNorm = normalizeTextOrNull(facilities);
+  const studioNorm = normalizeTextOrNull(studio);
+
+  if (!onsiteNorm || !colognoNorm) return null;
+
+  const result = await pool.query<{ id: number }>(
+    `SELECT id
+     FROM standard_combos
+     WHERE standard_onsite = $1
+       AND standard_cologno = $2
+       AND facilities = $3
+       AND (
+         ($4 IS NULL AND (studio IS NULL OR studio = '-'))
+         OR studio = $4
+       )
+     LIMIT 1`,
+    [onsiteNorm, colognoNorm, facilitiesNorm, studioNorm]
+  );
+
+  return result.rows[0]?.id ?? null;
+}
+
 function mapRowToEvent(row: Record<string, unknown>): Event {
   return {
     id: String(row.id ?? ""),
@@ -355,15 +395,24 @@ export async function getEventById(id: string): Promise<Event | null> {
 
 export async function createEvent(payload: EventCreatePayload): Promise<Event> {
   const id = payload.id?.trim() || randomUUID();
+  const explicitComboProvided = payload.standardComboId !== undefined;
+  const matchedComboId = explicitComboProvided
+    ? payload.standardComboId ?? null
+    : await findMatchingComboId(
+        payload.standardOnsite ?? null,
+        payload.standardCologno ?? null,
+        payload.facilities ?? null,
+        payload.studio ?? null
+      );
 
   const result = await pool.query(
     `INSERT INTO events (
-      id, category, date, status, competition_name, matchday, day, ko_italy_time,
+      id, category, date, status, standard_combo_id, competition_name, matchday, day, ko_italy_time,
       pre_duration_minutes, home_team_name_short, away_team_name_short, rights_holder,
       standard_onsite, standard_cologno, facilities, studio, show_name, client, format_name,
       episode, name_episode, start_time, notes, is_top_match
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
     )
     RETURNING ${EVENT_COLUMNS}`,
     [
@@ -371,6 +420,7 @@ export async function createEvent(payload: EventCreatePayload): Promise<Event> {
       payload.category,
       payload.date ?? null,
       payload.status ?? "TBD",
+      matchedComboId,
       payload.competitionName,
       payload.matchday ?? null,
       payload.day ?? null,
@@ -410,6 +460,7 @@ const UPDATE_FIELD_MAP: Array<{
   { col: "category", pick: (p) => p.category },
   { col: "date", pick: (p) => p.date },
   { col: "status", pick: (p) => p.status },
+  { col: "standard_combo_id", pick: (p) => p.standardComboId },
   { col: "competition_name", pick: (p) => p.competitionName },
   { col: "matchday", pick: (p) => p.matchday },
   { col: "day", pick: (p) => p.day },
@@ -447,6 +498,7 @@ export async function updateEvent(
   let paramIdx = 1;
   let statusChanged = false;
   let standardChanged = false;
+  const standardComboIdProvided = hasOwn(payload as object, "standardComboId");
 
   for (const { col, pick } of UPDATE_FIELD_MAP) {
     const val = pick(payload);
@@ -455,8 +507,28 @@ export async function updateEvent(
       values.push(val);
       paramIdx++;
       if (col === "status") statusChanged = true;
-      if (col === "standard_onsite" || col === "standard_cologno") standardChanged = true;
+      if (
+        col === "standard_onsite" ||
+        col === "standard_cologno" ||
+        col === "facilities" ||
+        col === "studio" ||
+        col === "standard_combo_id"
+      ) {
+        standardChanged = true;
+      }
     }
+  }
+
+  if (standardChanged && !standardComboIdProvided) {
+    const current = mapRowToEvent(currentResult.rows[0] as Record<string, unknown>);
+    const onsite = payload.standardOnsite ?? current.standardOnsite ?? null;
+    const cologno = payload.standardCologno ?? current.standardCologno ?? null;
+    const facilities = payload.facilities ?? current.facilities ?? null;
+    const studio = payload.studio ?? current.studio ?? null;
+    const autoComboId = await findMatchingComboId(onsite, cologno, facilities, studio);
+    fields.push(`standard_combo_id = $${paramIdx}`);
+    values.push(autoComboId);
+    paramIdx++;
   }
 
   if (fields.length === 0) {
@@ -484,6 +556,85 @@ export async function updateEvent(
   }
 
   return event;
+}
+
+export async function autoMatchEventCombosAndListUnmatched(): Promise<{
+  matched: number;
+  unmatched: number;
+  unmatchedEvents: Array<{
+    id: string;
+    homeTeam: string | null;
+    awayTeam: string | null;
+    onsite: string | null;
+    cologno: string | null;
+    facilities: string | null;
+    studio: string | null;
+  }>;
+}> {
+  const result = await pool.query<{
+    id: string;
+    home_team_name_short: string | null;
+    away_team_name_short: string | null;
+    standard_onsite: string | null;
+    standard_cologno: string | null;
+    facilities: string | null;
+    studio: string | null;
+  }>(
+    `SELECT id, home_team_name_short, away_team_name_short, standard_onsite, standard_cologno, facilities, studio
+     FROM events
+     WHERE standard_combo_id IS NULL
+       AND standard_onsite IS NOT NULL
+       AND standard_onsite <> ''
+       AND standard_cologno IS NOT NULL
+       AND standard_cologno <> ''`
+  );
+
+  let matched = 0;
+  const unmatchedEvents: Array<{
+    id: string;
+    homeTeam: string | null;
+    awayTeam: string | null;
+    onsite: string | null;
+    cologno: string | null;
+    facilities: string | null;
+    studio: string | null;
+  }> = [];
+
+  for (const row of result.rows) {
+    const comboId = await findMatchingComboId(
+      row.standard_onsite,
+      row.standard_cologno,
+      row.facilities,
+      row.studio
+    );
+
+    if (comboId != null) {
+      await pool.query(
+        `UPDATE events
+         SET standard_combo_id = $1
+         WHERE id = $2`,
+        [comboId, row.id]
+      );
+      matched++;
+      continue;
+    }
+
+    unmatchedEvents.push({
+      id: row.id,
+      homeTeam: row.home_team_name_short,
+      awayTeam: row.away_team_name_short,
+      onsite: row.standard_onsite,
+      cologno: row.standard_cologno,
+      facilities: row.facilities,
+      studio: row.studio,
+    });
+  }
+
+  return {
+    matched,
+    unmatched: unmatchedEvents.length,
+    unmatchedEvents,
+  };
 }
 
 export async function softCancelEvent(id: string): Promise<boolean> {
