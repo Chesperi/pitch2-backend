@@ -245,6 +245,7 @@ export interface AccreditationExportEventMeta {
   stadiumName: string | null;
   competitionName: string | null;
   ownerCode: string;
+  logoUrl: string | null;
 }
 
 export interface GetAccreditiExportMetaResponse {

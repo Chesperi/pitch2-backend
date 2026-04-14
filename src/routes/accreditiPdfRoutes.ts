@@ -1,4 +1,3 @@
-import path from "path";
 import { Router, Request, Response } from "express";
 import PDFDocument from "pdfkit";
 import { pool } from "../db";
@@ -10,6 +9,7 @@ import {
   loadAreasForOwner,
   type AccreditationAreaLegend,
 } from "../services/accreditationAreasService";
+import { getClubLogoUrl } from "../services/clubsService";
 
 const router = Router();
 
@@ -20,6 +20,9 @@ const HEADER_Y = 40;
 const LOGO_W = 60;
 const PAGE_BREAK_Y = 750;
 const LEGEND_PAGE_THRESHOLD = 700;
+const SUPABASE_ASSETS_BASE_URL =
+  "https://rpjwildueyckkpektfgn.supabase.co/storage/v1/object/public/pitch-assets";
+const DAZN_WHITE_LOGO_URL = `${SUPABASE_ASSETS_BASE_URL}/fixed/logo-dazn-white.jpeg`;
 
 /** A4 con margin 40 → ~515 pt utili; colonne compatte per 9 campi. */
 const COL_X = {
@@ -67,41 +70,79 @@ function formatPdfKoItaly(date: unknown, koTime: unknown): string {
   return Number.isNaN(dt.getTime()) ? iso : dt.toLocaleString("it-IT");
 }
 
-function getOwnerLogoPath(ownerCode: string): string | null {
-  const base = path.join(process.cwd(), "assets");
-  switch (ownerCode.trim().toLowerCase()) {
-    case "milan":
-      return path.join(base, "logo-milan.png");
-    case "inter":
-      return path.join(base, "logo-inter.png");
-    case "napoli":
-      return path.join(base, "logo-napoli.png");
-    case "lega":
-    default:
-      return path.join(base, "logo-lega.png");
+async function fetchImageBufferFromUrl(url: string | null): Promise<Buffer | null> {
+  const safeUrl = String(url ?? "").trim();
+  if (!safeUrl) return null;
+  try {
+    const response = await fetch(safeUrl);
+    if (!response.ok) return null;
+    const arr = await response.arrayBuffer();
+    return Buffer.from(arr);
+  } catch {
+    return null;
   }
+}
+
+async function resolveHeaderLogos(row: PdfEventRow): Promise<{
+  daznLogo: Buffer | null;
+  homeLogo: Buffer | null;
+  awayLogo: Buffer | null;
+}> {
+  const homeOwnerCode = deriveAccreditationOwnerCodeFromHomeTeam(
+    row.home_team_name_short
+  );
+  const awayOwnerCode = deriveAccreditationOwnerCodeFromHomeTeam(
+    row.away_team_name_short
+  );
+  const [homeLogoUrl, awayLogoUrl] = await Promise.all([
+    getClubLogoUrl(homeOwnerCode),
+    getClubLogoUrl(awayOwnerCode),
+  ]);
+
+  const [daznLogo, homeLogo, awayLogo] = await Promise.all([
+    fetchImageBufferFromUrl(DAZN_WHITE_LOGO_URL),
+    fetchImageBufferFromUrl(homeLogoUrl),
+    fetchImageBufferFromUrl(awayLogoUrl),
+  ]);
+
+  return { daznLogo, homeLogo, awayLogo };
 }
 
 function drawHeader(
   doc: PDFKit.PDFDocument,
   row: PdfEventRow,
-  ownerCode: string
+  ownerCode: string,
+  logos: {
+    daznLogo: Buffer | null;
+    homeLogo: Buffer | null;
+    awayLogo: Buffer | null;
+  }
 ): void {
-  const daznPath = path.join(process.cwd(), "assets", "logo-dazn.png");
-  try {
-    doc.image(daznPath, MARGIN, HEADER_Y, { width: LOGO_W });
-  } catch {
-    // asset assente in dev: ignora
+  if (logos.daznLogo) {
+    try {
+      doc.image(logos.daznLogo, MARGIN, HEADER_Y, { width: LOGO_W });
+    } catch {
+      // fallback: immagine non valida, ignora
+    }
   }
 
-  try {
-    const ownerLogoPath = getOwnerLogoPath(ownerCode);
-    if (ownerLogoPath) {
-      const rightX = RIGHT_EDGE - LOGO_W;
-      doc.image(ownerLogoPath, rightX, HEADER_Y, { width: LOGO_W });
+  const rightLogoW = 50;
+  const gap = 8;
+  let rightX = RIGHT_EDGE - rightLogoW;
+  if (logos.awayLogo) {
+    try {
+      doc.image(logos.awayLogo, rightX, HEADER_Y, { width: rightLogoW });
+      rightX -= rightLogoW + gap;
+    } catch {
+      // fallback: immagine non valida, ignora
     }
-  } catch {
-    // logo club/Lega assente: ignora
+  }
+  if (logos.homeLogo) {
+    try {
+      doc.image(logos.homeLogo, rightX, HEADER_Y, { width: rightLogoW });
+    } catch {
+      // fallback: immagine non valida, ignora
+    }
   }
 
   let y = HEADER_Y;
@@ -173,7 +214,12 @@ function drawAreaLegend(
   legends: AccreditationAreaLegend[],
   row: PdfEventRow,
   ownerCode: string,
-  tableEndY: number
+  tableEndY: number,
+  logos: {
+    daznLogo: Buffer | null;
+    homeLogo: Buffer | null;
+    awayLogo: Buffer | null;
+  }
 ): void {
   if (legends.length === 0) return;
 
@@ -184,7 +230,7 @@ function drawAreaLegend(
 
   if (ly + blockH > LEGEND_PAGE_THRESHOLD) {
     doc.addPage();
-    drawHeader(doc, row, ownerCode);
+    drawHeader(doc, row, ownerCode, logos);
     ly = doc.y + 8;
   }
 
@@ -200,7 +246,7 @@ function drawAreaLegend(
   for (const leg of legends) {
     if (ly + rowH > PAGE_BREAK_Y) {
       doc.addPage();
-      drawHeader(doc, row, ownerCode);
+      drawHeader(doc, row, ownerCode, logos);
       ly = doc.y + 8;
       doc.font("Helvetica-Bold").fontSize(9);
       doc.text("Legenda aree (segue)", MARGIN, ly, { width: USABLE_W });
@@ -296,7 +342,8 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
     doc.pipe(res);
     pdfStarted = true;
 
-    drawHeader(doc, row, ownerCode);
+    const logos = await resolveHeaderLogos(row);
+    drawHeader(doc, row, ownerCode, logos);
 
     let y = drawTableHeader(doc, doc.y) + 2;
     let rowIndex = 0;
@@ -304,7 +351,7 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
     staffRows.forEach((s) => {
       if (y > PAGE_BREAK_Y) {
         doc.addPage();
-        drawHeader(doc, row, ownerCode);
+        drawHeader(doc, row, ownerCode, logos);
         y = drawTableHeader(doc, doc.y) + 2;
         rowIndex = 0;
       }
@@ -362,7 +409,7 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
       y += rowHeight;
     });
 
-    drawAreaLegend(doc, areaLegends, row, ownerCode, y);
+    drawAreaLegend(doc, areaLegends, row, ownerCode, y, logos);
 
     doc.end();
   } catch (err) {

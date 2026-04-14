@@ -5,6 +5,7 @@ import {
   deriveAccreditationOwnerCodeFromHomeTeam,
   getAccreditationAreasByOwner,
 } from "../services/accreditationAreasService";
+import { getClubLogoUrl } from "../services/clubsService";
 import type {
   AccreditationExportEventMeta,
   AccreditationExportStaffRow,
@@ -59,6 +60,7 @@ router.get("/:eventId/export-meta", async (req: Request, res: Response) => {
     const ownerCode = deriveAccreditationOwnerCodeFromHomeTeam(
       row.home_team_name_short
     );
+    const logoUrl = await getClubLogoUrl(ownerCode);
 
     const accreditations = await listAccreditationsByEventId(eventId);
     const staffRows: AccreditationExportStaffRow[] = accreditations.map((a) => ({
@@ -84,6 +86,7 @@ router.get("/:eventId/export-meta", async (req: Request, res: Response) => {
       stadiumName: row.facilities,
       competitionName: row.competition_name,
       ownerCode,
+      logoUrl,
     };
 
     const body: GetAccreditiExportMetaResponse = {
