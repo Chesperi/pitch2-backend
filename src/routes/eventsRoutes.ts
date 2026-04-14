@@ -314,6 +314,39 @@ router.patch("/bulk-status", async (req: Request, res: Response) => {
   }
 });
 
+// PATCH /api/events/bulk-delete — soft cancel multiplo (status CANCELLED)
+router.patch("/bulk-delete", async (req: Request, res: Response) => {
+  try {
+    if (!(await requirePageEdit(req, res, "eventi"))) return;
+    const { eventIds } = req.body as { eventIds?: unknown };
+    if (!Array.isArray(eventIds) || eventIds.length === 0) {
+      res.status(400).json({ error: "eventIds must be a non-empty array" });
+      return;
+    }
+
+    const ids = eventIds
+      .map((v) => String(v ?? "").trim())
+      .filter((v) => v.length > 0);
+    if (ids.length === 0) {
+      res.status(400).json({ error: "eventIds must contain valid ids" });
+      return;
+    }
+
+    let updated = 0;
+    for (const id of ids) {
+      const ok = await softCancelEvent(id);
+      if (ok) updated++;
+    }
+
+    res.status(200).json({ requested: ids.length, updated });
+  } catch (err) {
+    console.error("PATCH /api/events/bulk-delete error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
 // GET /api/events/:id
 router.get("/:id", async (req: Request, res: Response) => {
   try {
