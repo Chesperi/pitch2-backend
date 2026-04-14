@@ -217,22 +217,26 @@ router.get("/", async (req: Request, res) => {
 // POST /api/assignments - create empty slot
 router.post("/", async (req: Request, res) => {
   try {
-    const { eventId, roleCode, roleLocation } = req.body as {
+    const body = (req.body ?? {}) as {
       eventId?: unknown;
+      event_id?: unknown;
       roleCode?: unknown;
+      role_code?: unknown;
       roleLocation?: unknown;
+      role_location?: unknown;
     };
+
+    const eventId = body.eventId ?? body.event_id;
+    const roleCode = body.roleCode ?? body.role_code;
+    const roleLocation = body.roleLocation ?? body.role_location;
 
     const eid =
       eventId != null && String(eventId).trim() !== ""
         ? String(eventId).trim()
         : null;
-    const rc =
-      typeof roleCode === "string" && roleCode.trim() ? roleCode.trim() : null;
+    const rc = String(roleCode ?? "").toString().trim() || null;
     const rl =
-      typeof roleLocation === "string" && roleLocation.trim()
-        ? roleLocation.trim().toUpperCase()
-        : null;
+      String(roleLocation ?? "").toString().trim().toUpperCase() || null;
 
     if (!eid || !rc || !rl) {
       res.status(400).json({
