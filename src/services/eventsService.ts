@@ -17,6 +17,7 @@ const EVENT_COLUMNS = [
   "category",
   "date",
   "status",
+  "standard_combo_id",
   "competition_name",
   "matchday",
   "day",
@@ -38,6 +39,25 @@ const EVENT_COLUMNS = [
   "notes",
   "is_top_match",
 ].join(", ");
+
+export const EVENT_STATUS_ALLOWED = [
+  "TBC",
+  "TBD",
+  "OK",
+  "CONFIRMED",
+  "CANCELLED",
+] as const;
+
+export type AllowedEventStatus = (typeof EVENT_STATUS_ALLOWED)[number];
+
+export function normalizeEventStatusInput(value: string): AllowedEventStatus | null {
+  const upper = String(value ?? "").trim().toUpperCase();
+  if (!upper) return null;
+  const normalized = upper === "CANCELED" ? "CANCELLED" : upper;
+  return (EVENT_STATUS_ALLOWED as readonly string[]).includes(normalized)
+    ? (normalized as AllowedEventStatus)
+    : null;
+}
 
 function combineKoDisplay(date: string | null, time: string | null): string | null {
   if (!date && !time) return null;
@@ -68,6 +88,8 @@ function mapRowToEvent(row: Record<string, unknown>): Event {
     category: String(row.category ?? ""),
     date: toIsoDateOnly(row.date),
     status: row.status != null ? String(row.status) : null,
+    standardComboId:
+      row.standard_combo_id != null ? Number(row.standard_combo_id) : null,
     competitionName: String(row.competition_name ?? ""),
     matchday: row.matchday != null ? Number(row.matchday) : null,
     day: row.day != null ? String(row.day) : null,
@@ -100,6 +122,8 @@ export function eventToApiJson(e: Event): Record<string, unknown> {
     category: e.category,
     date: e.date,
     status: e.status,
+    standard_combo_id: e.standardComboId ?? null,
+    standardComboId: e.standardComboId ?? null,
     competition_name: e.competitionName,
     competitionName: e.competitionName,
     matchday: e.matchday,
@@ -181,6 +205,7 @@ function mapRowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWi
 
 const DESIGNABLE_WHERE = `standard_onsite IS NOT NULL AND standard_onsite <> ''
   AND standard_cologno IS NOT NULL AND standard_cologno <> ''
+  AND standard_combo_id IS NOT NULL
   AND status IN ('OK', 'CONFIRMED')`;
 
 const ASSIGNMENT_EVENT_ROLE_SELECT = `
@@ -465,8 +490,35 @@ export async function softCancelEvent(id: string): Promise<boolean> {
   const exists = await pool.query("SELECT 1 FROM events WHERE id = $1", [id]);
   if (exists.rows.length === 0) return false;
 
-  await pool.query(`UPDATE events SET status = 'CANCELED' WHERE id = $1`, [id]);
+  await pool.query(`UPDATE events SET status = 'CANCELLED' WHERE id = $1`, [id]);
   return true;
+}
+
+export async function bulkUpdateEventStatus(
+  eventIds: string[],
+  statusInput: string
+): Promise<{ updated: number; status: AllowedEventStatus }> {
+  const status = normalizeEventStatusInput(statusInput);
+  if (!status) {
+    throw new Error("INVALID_EVENT_STATUS");
+  }
+
+  const uniqueIds = Array.from(
+    new Set(eventIds.map((v) => String(v ?? "").trim()).filter(Boolean))
+  );
+  if (uniqueIds.length === 0) {
+    return { updated: 0, status };
+  }
+
+  const result = await pool.query(
+    `UPDATE events
+     SET status = $1
+     WHERE id = ANY($2::text[])
+     RETURNING id`,
+    [status, uniqueIds]
+  );
+
+  return { updated: result.rowCount ?? 0, status };
 }
 
 export async function deleteEventPermanently(id: string): Promise<boolean> {

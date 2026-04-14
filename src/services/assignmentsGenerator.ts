@@ -14,7 +14,7 @@ export async function ensureAssignmentsForEvent(
   eventId: string
 ): Promise<void> {
   const eventResult = await pool.query(
-    `SELECT id, standard_onsite, standard_cologno, status
+    `SELECT id, standard_onsite, standard_cologno, standard_combo_id, status
      FROM events
      WHERE id = $1`,
     [eventId]
@@ -26,6 +26,7 @@ export async function ensureAssignmentsForEvent(
     id: string;
     standard_onsite: string | null;
     standard_cologno: string | null;
+    standard_combo_id: number | null;
     status: string;
   };
 
@@ -61,9 +62,17 @@ export async function ensureAssignmentsForEvent(
     const toCreate = Math.max(0, quantity - existingCount);
     for (let i = 0; i < toCreate; i++) {
       await pool.query(
-        `INSERT INTO assignments (event_id, role_code, role_location, staff_id, status, notes)
-         VALUES ($1, $2, $3, NULL, 'DRAFT', NULL)`,
-        [eventId, role_code, role_location]
+        `INSERT INTO assignments (
+           event_id,
+           role_code,
+           role_location,
+           staff_id,
+           status,
+           notes,
+           generated_from_combo_id
+         )
+         VALUES ($1, $2, $3, NULL, 'DRAFT', NULL, $4)`,
+        [eventId, role_code, role_location, event.standard_combo_id ?? null]
       );
     }
   }

@@ -18,6 +18,7 @@ const ASSIGNMENT_STATUSES: AssignmentStatus[] = [
 const ASSIGNMENT_LIST_SELECT = `
   a.id as a_id, a.event_id as a_event_id, a.role_code as a_role_code, a.role_location as a_role_location,
   a.staff_id as a_staff_id,
+  a.generated_from_combo_id as a_generated_from_combo_id,
   a.status as a_status, a.notes as a_notes, a.created_at as a_created_at, a.updated_at as a_updated_at,
   e.category as e_category, e.competition_name as e_competition_name, e.matchday as e_matchday,
   e.date as e_date, e.ko_italy_time as e_ko_italy_time,
@@ -47,6 +48,10 @@ function rowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWithJ
     roleCode: String(row.a_role_code ?? ""),
     roleLocation: String(row.a_role_location ?? ""),
     staffId: row.a_staff_id != null ? Number(row.a_staff_id) : null,
+    generatedFromComboId:
+      row.a_generated_from_combo_id != null
+        ? Number(row.a_generated_from_combo_id)
+        : null,
     status: row.a_status as AssignmentStatus,
     notes: row.a_notes as string | null,
     createdAt: String(row.a_created_at),
@@ -76,6 +81,10 @@ function rowToAssignment(row: Record<string, unknown>): Assignment {
     roleCode: String(row.role_code ?? ""),
     roleLocation: String(row.role_location ?? ""),
     staffId: row.staff_id != null ? Number(row.staff_id) : null,
+    generatedFromComboId:
+      row.generated_from_combo_id != null
+        ? Number(row.generated_from_combo_id)
+        : null,
     status: row.status as AssignmentStatus,
     notes: row.notes as string | null,
     createdAt: String(row.created_at),
@@ -243,6 +252,73 @@ router.post("/", async (req: Request, res) => {
     res.status(201).json(rowToAssignment(row));
   } catch (err) {
     console.error("POST /api/assignments error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
+// GET /api/assignments/conflicts?staffId=X&date=YYYY-MM-DD
+router.get("/conflicts", async (req: Request, res) => {
+  try {
+    const staffIdRaw = (req.query.staffId as string)?.trim();
+    const date = (req.query.date as string)?.trim();
+    if (!staffIdRaw || !date) {
+      res.status(400).json({ error: "staffId and date are required" });
+      return;
+    }
+
+    const staffPk = await resolveStaffDbIntegerId(staffIdRaw);
+    if (staffPk == null) {
+      res.status(400).json({ error: "Invalid staffId" });
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      res.status(400).json({ error: "date must be YYYY-MM-DD" });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT
+         a.id AS assignment_id,
+         a.event_id,
+         a.role_code,
+         a.role_location,
+         a.status AS assignment_status,
+         e.date AS event_date,
+         e.ko_italy_time,
+         e.competition_name,
+         e.home_team_name_short,
+         e.away_team_name_short,
+         e.show_name
+       FROM assignments a
+       JOIN events e ON e.id = a.event_id
+       WHERE a.staff_id = $1
+         AND e.date = $2::date
+       ORDER BY e.ko_italy_time ASC NULLS LAST, a.id ASC`,
+      [staffPk, date]
+    );
+
+    const items = result.rows.map((r) => ({
+      assignmentId: Number(r.assignment_id),
+      eventId: String(r.event_id ?? ""),
+      roleCode: String(r.role_code ?? ""),
+      roleLocation: String(r.role_location ?? ""),
+      assignmentStatus: String(r.assignment_status ?? ""),
+      date: r.event_date != null ? String(r.event_date).slice(0, 10) : null,
+      koItalyTime: r.ko_italy_time != null ? String(r.ko_italy_time) : null,
+      competitionName:
+        r.competition_name != null ? String(r.competition_name) : null,
+      homeTeamNameShort:
+        r.home_team_name_short != null ? String(r.home_team_name_short) : null,
+      awayTeamNameShort:
+        r.away_team_name_short != null ? String(r.away_team_name_short) : null,
+      showName: r.show_name != null ? String(r.show_name) : null,
+    }));
+
+    res.json({ items, total: items.length });
+  } catch (err) {
+    console.error("GET /api/assignments/conflicts error:", err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "Internal server error",
     });

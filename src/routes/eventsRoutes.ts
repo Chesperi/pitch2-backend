@@ -23,6 +23,8 @@ import {
   setAssignmentsReadyForEvent,
   eventToApiJson,
   getEventAssignmentsStatus,
+  bulkUpdateEventStatus,
+  normalizeEventStatusInput,
 } from "../services/eventsService";
 
 const router = Router();
@@ -260,6 +262,52 @@ router.get("/", async (req: Request, res: Response) => {
     res.json({ items: serialized, total });
   } catch (err) {
     console.error("GET /api/events error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
+// PATCH /api/events/bulk-status — update status su più eventi
+router.patch("/bulk-status", async (req: Request, res: Response) => {
+  try {
+    if (!(await requirePageEdit(req, res, "eventi"))) return;
+    const { eventIds, status } = req.body as {
+      eventIds?: unknown;
+      status?: unknown;
+    };
+
+    if (!Array.isArray(eventIds) || eventIds.length === 0) {
+      res.status(400).json({ error: "eventIds must be a non-empty array" });
+      return;
+    }
+    if (typeof status !== "string" || !status.trim()) {
+      res.status(400).json({ error: "status is required" });
+      return;
+    }
+
+    const normalized = normalizeEventStatusInput(status);
+    if (!normalized) {
+      res.status(400).json({
+        error:
+          "status must be one of: TBC, TBD, OK, CONFIRMED, CANCELLED (CANCELED is accepted and normalized)",
+      });
+      return;
+    }
+
+    const ids = eventIds
+      .map((v) => String(v ?? "").trim())
+      .filter((v) => v.length > 0);
+
+    if (ids.length === 0) {
+      res.status(400).json({ error: "eventIds must contain valid ids" });
+      return;
+    }
+
+    const result = await bulkUpdateEventStatus(ids, normalized);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("PATCH /api/events/bulk-status error:", err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "Internal server error",
     });

@@ -10,6 +10,7 @@ export interface Assignment {
   /** Allineato a `roles.location`; coppia univoca con `roleCode`. */
   roleLocation: string;
   staffId: number | null;
+  generatedFromComboId?: number | null;
   status: AssignmentStatus;
   notes: string | null;
   createdAt: string;
@@ -113,6 +114,7 @@ export interface Event {
   category: string;
   date: string | null;
   status: string | null;
+  standardComboId?: number | null;
   competitionName: string;
   matchday: number | null;
   day: string | null;
