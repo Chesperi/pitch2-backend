@@ -16,6 +16,9 @@ export type MyAssignmentListItem = {
   assignmentId: number;
   eventId: string;
   competition_name: string;
+  show_name: string | null;
+  home_team_name_short: string | null;
+  away_team_name_short: string | null;
   matchday: number | null;
   date: string | null;
   weekday: string;
@@ -35,10 +38,13 @@ type ListRow = {
   assignment_id: number;
   event_id: string;
   competition_name: string;
+  show_name: string | null;
+  home_team_name_short: string | null;
+  away_team_name_short: string | null;
   matchday: number | null;
   event_date: Date | string | null;
   ko_italy_time: string | null;
-  event_location: string | null;
+  role_location: string | null;
   role_name: string;
   status: string;
   notes: string | null;
@@ -101,11 +107,14 @@ function rowToListItem(row: ListRow): MyAssignmentListItem {
     assignmentId: row.assignment_id,
     eventId: String(row.event_id),
     competition_name: row.competition_name,
+    show_name: row.show_name,
+    home_team_name_short: row.home_team_name_short,
+    away_team_name_short: row.away_team_name_short,
     matchday: row.matchday,
     date,
     weekday,
     ko_time,
-    location: row.event_location,
+    location: row.role_location,
     role_name: row.role_name,
     status: row.status,
     notes: row.notes,
@@ -124,10 +133,13 @@ export async function listMyAssignments(
        a.id AS assignment_id,
        a.event_id,
        e.competition_name,
+       e.show_name,
+       e.home_team_name_short,
+       e.away_team_name_short,
        e.matchday,
        e.date AS event_date,
        e.ko_italy_time,
-       e.day AS event_location,
+       a.role_location,
        COALESCE(NULLIF(TRIM(r.description), ''), r.role_code) AS role_name,
        a.status,
        a.notes,
@@ -164,10 +176,13 @@ export async function getMyAssignmentDetail(
        a.id AS assignment_id,
        a.event_id,
        e.competition_name,
+       e.show_name,
+       e.home_team_name_short,
+       e.away_team_name_short,
        e.matchday,
        e.date AS event_date,
        e.ko_italy_time,
-       e.day AS event_location,
+       a.role_location,
        COALESCE(NULLIF(TRIM(r.description), ''), r.role_code) AS role_name,
        a.status,
        a.notes,

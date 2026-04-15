@@ -77,19 +77,18 @@ function formatDateLine(row: AssignmentRow): string {
 function mapAssignmentsToEvents(rows: AssignmentRow[]): DesignazioniEmailEvent[] {
   return rows.map((a) => {
     const competition = a.e_competition_name || a.e_category || "";
-    const home = a.e_home_team_name_short ?? "";
-    const away = a.e_away_team_name_short ?? "";
-    const matchTitle = `${home} vs ${away}`.trim() || "—";
+    const home = (a.e_home_team_name_short ?? "").trim();
+    const away = (a.e_away_team_name_short ?? "").trim();
+    const matchTitle =
+      home && away
+        ? `${home} vs ${away}`
+        : (a.e_show_name ?? "").trim() ||
+          (a.e_competition_name ?? "").trim() ||
+          "Evento senza titolo";
     const dateLine = formatDateLine(a);
-    const roleLabel =
-      (a.r_description && a.r_description.trim()) || a.r_role_code;
-    const standardParts = [a.e_standard_onsite, a.e_standard_cologno].filter(
-      Boolean
-    );
-    const standardLabel = standardParts.join(" / ") || "";
-    const roleLine = standardLabel
-      ? `Ruolo: ${roleLabel} | Standard: ${standardLabel}`
-      : `Ruolo: ${roleLabel}`;
+    const roleCode = (a.a_role_code ?? a.r_role_code ?? "").trim() || "—";
+    const roleLocation = (a.a_role_location ?? a.r_location ?? "").trim() || "—";
+    const roleLine = `Ruolo: ${roleCode} | Sede: ${roleLocation}`;
     return { competition, matchTitle, dateLine, roleLine };
   });
 }
@@ -260,6 +259,16 @@ router.post("/send-person", async (req: Request, res) => {
       htmlContent: html,
     });
 
+    const sentIds = assignments.map((a) => a.a_id);
+    if (sentIds.length > 0) {
+      await pool.query(
+        `UPDATE assignments
+         SET status = 'SENT', updated_at = now()
+         WHERE id = ANY($1::int[]) AND status = 'READY'`,
+        [sentIds]
+      );
+    }
+
     console.log("SEND PERSON MAIL", {
       staffPk,
       assignmentIds,
@@ -295,18 +304,22 @@ router.post("/send-period", async (req: Request, res) => {
       [from, to]
     );
 
-    const map = new Map<number, number[]>();
+    const map = new Map<number, Set<number>>();
     for (const row of result.rows) {
-      const sid = row.a_staff_id as number;
-      const id = row.a_id as number;
-      const list = map.get(sid) ?? [];
-      list.push(id);
+      const sid = Number((row as { a_staff_id: unknown }).a_staff_id);
+      const id = Number((row as { a_id: unknown }).a_id);
+      if (!Number.isFinite(sid) || sid <= 0) continue;
+      if (!Number.isFinite(id) || id <= 0) continue;
+      const list = map.get(sid) ?? new Set<number>();
+      list.add(id);
       map.set(sid, list);
     }
 
     let sentCount = 0;
 
-    for (const [staffPk, ids] of map.entries()) {
+    for (const [staffPk, idsSet] of map.entries()) {
+      const ids = Array.from(idsSet);
+      if (ids.length === 0) continue;
       const placeholders = ids.map((_, i) => `$${i + 2}`).join(", ");
       const detailResult = await pool.query(
         `SELECT ${selectCols}
@@ -345,6 +358,16 @@ router.post("/send-period", async (req: Request, res) => {
         subject: "Le tue designazioni aggiornate",
         htmlContent: html,
       });
+
+      const sentIds = assignments.map((a) => a.a_id);
+      if (sentIds.length > 0) {
+        await pool.query(
+          `UPDATE assignments
+           SET status = 'SENT', updated_at = now()
+           WHERE id = ANY($1::int[]) AND status = 'READY'`,
+          [sentIds]
+        );
+      }
       sentCount++;
     }
 
