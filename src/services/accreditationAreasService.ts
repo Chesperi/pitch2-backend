@@ -95,16 +95,79 @@ export async function getAreasForOwnerAndRole(
   return map[r] ?? map[r.toUpperCase()] ?? map[r.toLowerCase()] ?? null;
 }
 
+function normalizeTeamKey(name: string | null | undefined): string | null {
+  if (name == null) return null;
+  const s = String(name).trim().toLowerCase();
+  if (!s) return null;
+  return s.replace(/[^a-z0-9]/g, "");
+}
+
 export function deriveAccreditationOwnerCodeFromHomeTeam(
   homeTeam: string | null | undefined
 ): string {
-  if (homeTeam == null) return "lega";
-  const s = String(homeTeam).trim().toLowerCase();
-  if (!s) return "lega";
-  if (s.includes("milan")) return "milan";
-  if (s.includes("inter")) return "inter";
-  if (s.includes("napoli")) return "napoli";
-  return "lega";
+  const key = normalizeTeamKey(homeTeam);
+  if (!key) return "lega";
+
+  switch (key) {
+    case "atalanta":
+      return "atalanta";
+    case "bologna":
+      return "bologna";
+    case "cagliari":
+      return "cagliari";
+    case "como":
+    case "como1907":
+      return "como";
+    case "cremonese":
+      return "cremonese";
+    case "empoli":
+      return "empoli";
+    case "fiorentina":
+      return "fiorentina";
+    case "frosinone":
+      return "frosinone";
+    case "genoa":
+      return "genoa";
+    case "hellasverona":
+    case "verona":
+      return "hellas_verona";
+    case "inter":
+    case "fcinter":
+      return "inter";
+    case "juventus":
+      return "juventus";
+    case "lazio":
+      return "lazio";
+    case "lecce":
+      return "lecce";
+    case "milan":
+    case "acmilan":
+      return "milan";
+    case "monza":
+      return "monza";
+    case "napoli":
+    case "sscnapoli":
+      return "napoli";
+    case "parma":
+      return "parma";
+    case "pisa":
+      return "pisa";
+    case "roma":
+    case "asroma":
+      return "roma";
+    case "salernitana":
+      return "salernitana";
+    case "sassuolo":
+      return "sassuolo";
+    case "torino":
+      return "torino";
+    case "udinese":
+      return "udinese";
+    case "venezia":
+      return "venezia";
+    default:
+      return "lega";
+  }
 }
 
 export async function getAccreditationAreasByOwner(ownerCode: string): Promise<{
