@@ -119,6 +119,9 @@ export interface Event {
   matchday: number | null;
   day: string | null;
   koItalyTime: string | null;
+  venueName: string | null;
+  venueAddress: string | null;
+  venueCity: string | null;
   preDurationMinutes: number;
   homeTeamNameShort: string | null;
   awayTeamNameShort: string | null;
@@ -164,6 +167,9 @@ export interface EventCreatePayload {
   matchday?: number | null;
   day?: string | null;
   koItalyTime?: string | null;
+  venueName?: string | null;
+  venueAddress?: string | null;
+  venueCity?: string | null;
   preDurationMinutes?: number;
   homeTeamNameShort?: string | null;
   awayTeamNameShort?: string | null;

@@ -1,0 +1,3 @@
+ALTER TABLE events
+ADD COLUMN IF NOT EXISTS venue_address TEXT,
+ADD COLUMN IF NOT EXISTS venue_city TEXT;

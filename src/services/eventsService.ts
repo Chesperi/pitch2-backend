@@ -22,6 +22,9 @@ const EVENT_COLUMNS = [
   "matchday",
   "day",
   "ko_italy_time",
+  "venue_name",
+  "venue_address",
+  "venue_city",
   "pre_duration_minutes",
   "home_team_name_short",
   "away_team_name_short",
@@ -134,6 +137,9 @@ function mapRowToEvent(row: Record<string, unknown>): Event {
     matchday: row.matchday != null ? Number(row.matchday) : null,
     day: row.day != null ? String(row.day) : null,
     koItalyTime: row.ko_italy_time != null ? String(row.ko_italy_time) : null,
+    venueName: row.venue_name != null ? String(row.venue_name) : null,
+    venueAddress: row.venue_address != null ? String(row.venue_address) : null,
+    venueCity: row.venue_city != null ? String(row.venue_city) : null,
     preDurationMinutes: Number(row.pre_duration_minutes ?? 0),
     homeTeamNameShort:
       row.home_team_name_short != null ? String(row.home_team_name_short) : null,
@@ -169,8 +175,13 @@ export async function listEventsReadyForAccrediti(): Promise<
   const result = await pool.query(
     `SELECT
        ${eventSelect},
-       (SELECT COUNT(*)::int FROM assignments a WHERE a.event_id = e.id AND a.staff_id IS NOT NULL) AS covered_assignments,
-       (SELECT COUNT(*)::int FROM assignments a WHERE a.event_id = e.id) AS total_assignments
+       (SELECT COUNT(*)::int FROM assignments a
+         WHERE a.event_id = e.id
+           AND a.staff_id IS NOT NULL
+           AND a.role_location = 'STADIO') AS covered_assignments,
+       (SELECT COUNT(*)::int FROM assignments a
+         WHERE a.event_id = e.id
+           AND a.role_location = 'STADIO') AS total_assignments
      FROM events e
      WHERE EXISTS (
        SELECT 1 FROM assignments a
@@ -209,6 +220,12 @@ export function eventToApiJson(e: Event): Record<string, unknown> {
     matchday: e.matchday,
     day: e.day,
     ko_italy_time: e.koItalyTime,
+    venue_name: e.venueName,
+    venueName: e.venueName,
+    venue_address: e.venueAddress,
+    venueAddress: e.venueAddress,
+    venue_city: e.venueCity,
+    venueCity: e.venueCity,
     koItaly: combineKoDisplay(e.date, e.koItalyTime),
     pre_duration_minutes: e.preDurationMinutes,
     preDurationMinutes: e.preDurationMinutes,
@@ -476,11 +493,12 @@ export async function createEvent(payload: EventCreatePayload): Promise<Event> {
   const result = await pool.query(
     `INSERT INTO events (
       id, category, date, status, standard_combo_id, competition_name, matchday, day, ko_italy_time,
+      venue_name, venue_address, venue_city,
       pre_duration_minutes, home_team_name_short, away_team_name_short, rights_holder,
       standard_onsite, standard_cologno, facilities, studio, show_name, client, format_name,
       episode, name_episode, start_time, notes, is_top_match
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
     )
     RETURNING ${EVENT_COLUMNS}`,
     [
@@ -493,6 +511,9 @@ export async function createEvent(payload: EventCreatePayload): Promise<Event> {
       payload.matchday ?? null,
       payload.day ?? null,
       payload.koItalyTime ?? null,
+      payload.venueName ?? null,
+      payload.venueAddress ?? null,
+      payload.venueCity ?? null,
       payload.preDurationMinutes ?? 0,
       payload.homeTeamNameShort ?? null,
       payload.awayTeamNameShort ?? null,
@@ -533,6 +554,9 @@ const UPDATE_FIELD_MAP: Array<{
   { col: "matchday", pick: (p) => p.matchday },
   { col: "day", pick: (p) => p.day },
   { col: "ko_italy_time", pick: (p) => p.koItalyTime },
+  { col: "venue_name", pick: (p) => p.venueName },
+  { col: "venue_address", pick: (p) => p.venueAddress },
+  { col: "venue_city", pick: (p) => p.venueCity },
   { col: "pre_duration_minutes", pick: (p) => p.preDurationMinutes },
   { col: "home_team_name_short", pick: (p) => p.homeTeamNameShort },
   { col: "away_team_name_short", pick: (p) => p.awayTeamNameShort },
