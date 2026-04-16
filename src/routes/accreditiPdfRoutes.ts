@@ -281,6 +281,7 @@ function drawAreaLegend(
     daznLogo: Buffer | null;
     homeLogo: Buffer | null;
     awayLogo: Buffer | null;
+    competitionLogo: Buffer | null;
   }
 ): void {
   if (legends.length === 0) return;
