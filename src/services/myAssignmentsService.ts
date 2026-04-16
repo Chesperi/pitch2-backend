@@ -99,12 +99,7 @@ function formatKoItalyParts(
       ? weekdayRaw.charAt(0).toUpperCase() + weekdayRaw.slice(1)
       : "";
 
-  const ko_time = new Intl.DateTimeFormat("it-IT", {
-    ...ROME_TZ,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(d);
+  const ko_time = tStr || null;
 
   return { date, weekday, ko_time };
 }
