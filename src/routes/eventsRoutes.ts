@@ -366,6 +366,39 @@ router.patch("/bulk-delete", async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/events/bulk-permanent-delete — delete permanente multiplo (prima di /:id)
+router.post("/bulk-permanent-delete", async (req: Request, res: Response) => {
+  try {
+    if (!(await requirePageEdit(req, res, "eventi"))) return;
+    const { eventIds } = req.body as { eventIds?: unknown };
+    if (!Array.isArray(eventIds) || eventIds.length === 0) {
+      res.status(400).json({ error: "eventIds must be a non-empty array" });
+      return;
+    }
+
+    const ids = eventIds
+      .map((v) => String(v ?? "").trim())
+      .filter((v) => v.length > 0);
+    if (ids.length === 0) {
+      res.status(400).json({ error: "eventIds must contain valid ids" });
+      return;
+    }
+
+    let deleted = 0;
+    for (const id of ids) {
+      const ok = await deleteEventPermanently(id);
+      if (ok) deleted++;
+    }
+
+    res.status(200).json({ requested: ids.length, deleted });
+  } catch (err) {
+    console.error("POST /api/events/bulk-permanent-delete error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
 // POST /api/events/auto-match-combos — prima di /:id
 router.post("/auto-match-combos", async (req: Request, res: Response) => {
   try {

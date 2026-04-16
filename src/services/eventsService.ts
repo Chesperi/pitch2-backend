@@ -194,19 +194,35 @@ export function eventToApiJson(e: Event): Record<string, unknown> {
 export async function getEventAssignmentsStatus(
   eventId: string
 ): Promise<EventAssignmentsStatus> {
-  const result = await pool.query<{ ready_count: string; sent_count: string }>(
+  const result = await pool.query<{
+    total_count: string;
+    unassigned_count: string;
+    ready_count: string;
+    sent_count: string;
+    confirmed_count: string;
+  }>(
     `SELECT
+       COUNT(*)::int AS total_count,
+       SUM(CASE WHEN staff_id IS NULL THEN 1 ELSE 0 END)::int AS unassigned_count,
        SUM(CASE WHEN status = 'READY' THEN 1 ELSE 0 END)::int AS ready_count,
-       SUM(CASE WHEN status IN ('SENT','CONFIRMED','REJECTED') THEN 1 ELSE 0 END)::int AS sent_count
+       SUM(CASE WHEN status = 'SENT' THEN 1 ELSE 0 END)::int AS sent_count,
+       SUM(CASE WHEN status = 'CONFIRMED' THEN 1 ELSE 0 END)::int AS confirmed_count
      FROM assignments
      WHERE event_id = $1`,
     [eventId]
   );
   const row = result.rows[0];
+  const total = Number(row?.total_count ?? 0);
+  const unassigned = Number(row?.unassigned_count ?? 0);
   const ready = Number(row?.ready_count ?? 0);
   const sent = Number(row?.sent_count ?? 0);
+  const confirmed = Number(row?.confirmed_count ?? 0);
+
+  // Priorita assoluta: finche ci sono slot vuoti, evento in bozza.
+  if (total === 0 || unassigned > 0) return "DRAFT";
+  if (confirmed === total) return "CONFIRMED";
+  if (sent === total) return "SENT";
   if (ready > 0) return "READY_TO_SEND";
-  if (sent > 0) return "SENT";
   return "DRAFT";
 }
 
@@ -312,15 +328,27 @@ function buildListWhereClause(
     .assignmentsStatus;
   if (assignmentsStatus === "DRAFT") {
     conditions.push(
-      `NOT EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status IN ('READY','SENT','CONFIRMED','REJECTED'))`
+      `NOT EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id)
+       OR EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.staff_id IS NULL)
+       OR EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status = 'DRAFT')`
     );
   } else if (assignmentsStatus === "READY_TO_SEND") {
     conditions.push(
-      `EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status = 'READY')`
+      `EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id)
+       AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.staff_id IS NULL)
+       AND EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status = 'READY')`
     );
   } else if (assignmentsStatus === "SENT") {
     conditions.push(
-      `NOT EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status = 'READY') AND EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status IN ('SENT','CONFIRMED','REJECTED'))`
+      `EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id)
+       AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.staff_id IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status <> 'SENT')`
+    );
+  } else if (assignmentsStatus === "CONFIRMED") {
+    conditions.push(
+      `EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id)
+       AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.staff_id IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.event_id = events.id AND a.status <> 'CONFIRMED')`
     );
   }
 

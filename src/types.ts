@@ -1,7 +1,7 @@
 import type { StaffId } from "./types/staffId";
 
 export type AssignmentStatus = "DRAFT" | "READY" | "SENT" | "CONFIRMED" | "REJECTED";
-export type EventAssignmentsStatus = "DRAFT" | "READY_TO_SEND" | "SENT";
+export type EventAssignmentsStatus = "DRAFT" | "READY_TO_SEND" | "SENT" | "CONFIRMED";
 
 export interface Assignment {
   id: number;
