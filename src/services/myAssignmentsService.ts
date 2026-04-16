@@ -60,8 +60,24 @@ function formatKoItalyParts(
   weekday: string;
   ko_time: string | null;
 } {
-  const dStr =
-    eventDate != null ? String(eventDate).slice(0, 10) : "";
+  let dStr = "";
+  if (eventDate instanceof Date) {
+    if (!Number.isNaN(eventDate.getTime())) {
+      dStr = eventDate.toISOString().slice(0, 10);
+    }
+  } else if (typeof eventDate === "string") {
+    const trimmed = eventDate.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+      dStr = trimmed.slice(0, 10);
+    } else if (trimmed) {
+      const parsed = new Date(trimmed);
+      if (!Number.isNaN(parsed.getTime())) {
+        dStr = parsed.toISOString().slice(0, 10);
+      } else {
+        dStr = trimmed.slice(0, 10);
+      }
+    }
+  }
   const tStr = koTime != null ? String(koTime).trim() : "";
   const iso = dStr && tStr ? `${dStr}T${tStr}` : dStr || tStr;
   if (!iso) {
@@ -72,12 +88,7 @@ function formatKoItalyParts(
     return { date: dStr || null, weekday: "", ko_time: tStr || null };
   }
 
-  const date = new Intl.DateTimeFormat("en-CA", {
-    ...ROME_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
+  const date = dStr || d.toISOString().slice(0, 10);
 
   const weekdayRaw = new Intl.DateTimeFormat("it-IT", {
     ...ROME_TZ,
