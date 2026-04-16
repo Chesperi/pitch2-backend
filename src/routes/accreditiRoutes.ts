@@ -5,13 +5,12 @@ import { resolveStaffDbIntegerId } from "../services/staffService";
 import type {
   AccreditationListItem,
   AccreditationWithStaff,
-  EventAssignmentsStatus,
   GetAccreditiResponse,
 } from "../types";
 import {
   eventToApiJson,
   getEventAssignmentsStatus,
-  listEvents,
+  listEventsReadyForAccrediti,
 } from "../services/eventsService";
 
 const router = Router();
@@ -43,49 +42,21 @@ async function serializeEventWithAssignmentsStatus(
   };
 }
 
-async function listAllEventsByAssignmentsStatus(
-  assignmentsStatus: EventAssignmentsStatus
-): Promise<Parameters<typeof eventToApiJson>[0][]> {
-  const pageSize = 200;
-  let offset = 0;
-  let total = 0;
-  const items: Parameters<typeof eventToApiJson>[0][] = [];
-
-  do {
-    const page = await listEvents(
-      { assignmentsStatus },
-      { limit: pageSize, offset }
-    );
-    total = page.total;
-    items.push(...page.items);
-    offset += pageSize;
-  } while (offset < total);
-
-  return items;
-}
-
 // GET /api/accrediti/events-ready — prima di /:eventId
 router.get("/events-ready", async (_req: Request, res: Response) => {
   try {
-    const [readyToSend, sent] = await Promise.all([
-      listAllEventsByAssignmentsStatus("READY_TO_SEND"),
-      listAllEventsByAssignmentsStatus("SENT"),
-    ]);
-
-    const map = new Map<string, Parameters<typeof eventToApiJson>[0]>();
-    for (const event of [...readyToSend, ...sent]) {
-      map.set(String(event.id), event);
-    }
-
-    const merged = [...map.values()].sort((a, b) => {
-      const aDate = String(a.date ?? "");
-      const bDate = String(b.date ?? "");
-      if (aDate !== bDate) return aDate.localeCompare(bDate);
-      return String(a.id).localeCompare(String(b.id));
-    });
-
+    const rows = await listEventsReadyForAccrediti();
     const items = await Promise.all(
-      merged.map((event) => serializeEventWithAssignmentsStatus(event))
+      rows.map(async ({ event, coveredAssignments, totalAssignments }) => {
+        const base = await serializeEventWithAssignmentsStatus(event);
+        return {
+          ...base,
+          covered_assignments: coveredAssignments,
+          total_assignments: totalAssignments,
+          coveredAssignments,
+          totalAssignments,
+        };
+      })
     );
 
     res.json({ items, total: items.length });

@@ -155,6 +155,46 @@ function mapRowToEvent(row: Record<string, unknown>): Event {
   };
 }
 
+/** Eventi con almeno uno slot assegnato in READY/SENT/CONFIRMED (lista Accrediti). */
+export async function listEventsReadyForAccrediti(): Promise<
+  Array<{
+    event: Event;
+    coveredAssignments: number;
+    totalAssignments: number;
+  }>
+> {
+  const eventSelect = EVENT_COLUMNS.split(", ")
+    .map((c) => `e.${c}`)
+    .join(", ");
+  const result = await pool.query(
+    `SELECT
+       ${eventSelect},
+       (SELECT COUNT(*)::int FROM assignments a WHERE a.event_id = e.id AND a.staff_id IS NOT NULL) AS covered_assignments,
+       (SELECT COUNT(*)::int FROM assignments a WHERE a.event_id = e.id) AS total_assignments
+     FROM events e
+     WHERE EXISTS (
+       SELECT 1 FROM assignments a
+       WHERE a.event_id = e.id
+         AND a.status IN ('READY', 'SENT', 'CONFIRMED')
+         AND a.staff_id IS NOT NULL
+     )
+     ORDER BY e.date ASC NULLS LAST, e.ko_italy_time ASC NULLS LAST, e.id ASC`
+  );
+  return result.rows.map((row) => {
+    const raw = row as Record<string, unknown>;
+    const covered = Number(raw.covered_assignments ?? 0);
+    const total = Number(raw.total_assignments ?? 0);
+    const eventRow: Record<string, unknown> = { ...raw };
+    delete eventRow.covered_assignments;
+    delete eventRow.total_assignments;
+    return {
+      event: mapRowToEvent(eventRow),
+      coveredAssignments: covered,
+      totalAssignments: total,
+    };
+  });
+}
+
 /** Serializzazione REST: snake_case dove serve al client legacy. */
 export function eventToApiJson(e: Event): Record<string, unknown> {
   return {
