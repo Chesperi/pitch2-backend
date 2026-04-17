@@ -91,8 +91,20 @@ function formatPdfDateLong(date: unknown): string {
 }
 
 function formatPdfDateFileToken(date: unknown): string {
-  const d = date != null ? String(date).slice(0, 10) : "";
-  const parsed = d ? new Date(`${d}T12:00:00`) : null;
+  let parsed: Date | null = null;
+  if (date instanceof Date) {
+    parsed = Number.isNaN(date.getTime()) ? null : date;
+  } else if (typeof date === "string") {
+    const value = date.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      parsed = new Date(`${value}T12:00:00`);
+    } else if (value) {
+      parsed = new Date(value);
+    }
+  } else if (date != null) {
+    const value = String(date).trim();
+    if (value) parsed = new Date(value);
+  }
   if (!parsed || Number.isNaN(parsed.getTime())) return "NA";
   const yy = String(parsed.getFullYear()).slice(-2);
   const mm = String(parsed.getMonth() + 1).padStart(2, "0");
