@@ -1,11 +1,10 @@
 import { Router, Request, Response } from "express";
 import PDFDocument from "pdfkit";
 import { pool } from "../db";
-import { listAccreditationsByEventId } from "../services/accreditationsService";
+import { listOnsiteAccreditationStaff } from "../services/accreditiOnsiteService";
 import {
   deriveAccreditationOwnerCodeFromHomeTeam,
   getAccreditationAreasByOwner,
-  getAreasForOwnerAndRole,
   loadAreasForOwner,
   type AccreditationAreaLegend,
 } from "../services/accreditationAreasService";
@@ -19,6 +18,7 @@ const USABLE_W = PAGE_W - MARGIN * 2;
 const RIGHT_EDGE = MARGIN + USABLE_W;
 const HEADER_Y = 40;
 const LOGO_W = 56;
+const LOGO_H = 50;
 const PAGE_BREAK_Y = 560;
 const LEGEND_PAGE_THRESHOLD = 520;
 const SUPABASE_ASSETS_BASE_URL =
@@ -169,7 +169,6 @@ async function resolveHeaderLogos(row: PdfEventRow): Promise<{
 function drawHeader(
   doc: PDFKit.PDFDocument,
   row: PdfEventRow,
-  ownerCode: string,
   logos: {
     daznLogo: Buffer | null;
     homeLogo: Buffer | null;
@@ -179,7 +178,7 @@ function drawHeader(
 ): void {
   let y = HEADER_Y;
   doc.font("OscineBd").fontSize(13).fillColor("#000000");
-  doc.text(row.competition_name?.trim() || "DAZN & SERIE A 2025/26", MARGIN, y, {
+  doc.text("DAZN & SERIE A 2025/26", MARGIN, y, {
     width: USABLE_W,
     align: "center",
   });
@@ -198,12 +197,12 @@ function drawHeader(
   ]) {
     if (!entry.buf) continue;
     try {
-      doc.image(entry.buf, entry.x, logoY, { width: LOGO_W });
+      doc.image(entry.buf, entry.x, logoY, { height: LOGO_H });
     } catch {
       // ignore invalid image
     }
   }
-  y += LOGO_W + 10;
+  y += LOGO_H + 10;
 
   doc.font("OscineBd").fontSize(14);
   doc.text(
@@ -215,13 +214,10 @@ function drawHeader(
   y += 16;
 
   doc.font("OscineRg").fontSize(10);
-  doc.text(
-    [row.venue_name, row.venue_city].filter(Boolean).join(", ") ||
-      (row.facilities ?? ""),
-    MARGIN,
-    y,
-    { width: USABLE_W, align: "center" }
-  );
+  doc.text([row.venue_name, row.venue_city].filter(Boolean).join(", "), MARGIN, y, {
+    width: USABLE_W,
+    align: "center",
+  });
   y += 13;
   doc.text(row.venue_address ?? "", MARGIN, y, { width: USABLE_W, align: "center" });
   y += 13;
@@ -275,7 +271,6 @@ function drawAreaLegend(
   doc: PDFKit.PDFDocument,
   legends: AccreditationAreaLegend[],
   row: PdfEventRow,
-  ownerCode: string,
   tableEndY: number,
   logos: {
     daznLogo: Buffer | null;
@@ -293,7 +288,7 @@ function drawAreaLegend(
 
   if (ly + blockH > LEGEND_PAGE_THRESHOLD) {
     doc.addPage();
-    drawHeader(doc, row, ownerCode, logos);
+    drawHeader(doc, row, logos);
     ly = doc.y + 8;
   }
 
@@ -306,7 +301,7 @@ function drawAreaLegend(
   for (const leg of legends) {
     if (ly + rowH > PAGE_BREAK_Y) {
       doc.addPage();
-      drawHeader(doc, row, ownerCode, logos);
+      drawHeader(doc, row, logos);
       ly = doc.y + 8;
       doc.font("OscineBd").fontSize(9);
       doc.text("AREE ACCREDITO: (segue)", MARGIN, ly, { width: USABLE_W });
@@ -362,40 +357,22 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
       row.home_team_name_short
     );
 
-    const accreditations = await listAccreditationsByEventId(eventId);
+    const onsiteRows = await listOnsiteAccreditationStaff(eventId, ownerCode);
     await loadAreasForOwner(ownerCode);
     const { legends: areaLegends } =
       await getAccreditationAreasByOwner(ownerCode);
 
-    const staffRows = await Promise.all(
-      accreditations.map(async (a) => {
-        const effectiveRoleCode = a.roleCode ?? a.staffDefaultRoleCode ?? null;
-
-        const hasManualAreas =
-          a.areas != null && String(a.areas).trim() !== "";
-        let finalAreas: string | null = hasManualAreas ? a.areas : null;
-        if (!finalAreas) {
-          const derived = await getAreasForOwnerAndRole(
-            ownerCode,
-            effectiveRoleCode
-          );
-          finalAreas =
-            derived != null && derived.trim() !== "" ? derived.trim() : null;
-        }
-
-        return {
-          company: a.staffCompany,
-          surname: a.staffSurname,
-          name: a.staffName,
-          placeOfBirth: a.staffPlaceOfBirth,
-          dateOfBirth: a.staffDateOfBirth,
-          areas: finalAreas ?? "",
-          roleCode: effectiveRoleCode,
-          plates: a.plates ?? a.staffPlates ?? null,
-          notes: a.notes ?? a.staffNotes ?? null,
-        };
-      })
-    );
+    const staffRows = onsiteRows.map((s) => ({
+      company: s.company,
+      surname: s.surname,
+      name: s.name,
+      placeOfBirth: s.placeOfBirth,
+      dateOfBirth: s.dateOfBirth,
+      areas: s.areas ?? "",
+      roleCode: s.roleCode,
+      plates: s.plates ?? null,
+      notes: s.notes ?? null,
+    }));
 
     const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: MARGIN });
     const [oscineRg, oscineBd] = await Promise.all([
@@ -418,14 +395,14 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
     pdfStarted = true;
 
     const logos = await resolveHeaderLogos(row);
-    drawHeader(doc, row, ownerCode, logos);
+    drawHeader(doc, row, logos);
 
     let y = drawTableHeader(doc, doc.y);
 
     staffRows.forEach((s) => {
       if (y > PAGE_BREAK_Y) {
         doc.addPage();
-        drawHeader(doc, row, ownerCode, logos);
+        drawHeader(doc, row, logos);
         y = drawTableHeader(doc, doc.y);
       }
 
@@ -462,7 +439,7 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
       y += rowHeight;
     });
 
-    drawAreaLegend(doc, areaLegends, row, ownerCode, y, logos);
+    drawAreaLegend(doc, areaLegends, row, y, logos);
 
     doc.end();
   } catch (err) {
