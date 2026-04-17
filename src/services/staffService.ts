@@ -9,7 +9,7 @@ export type StaffProfileAuth = {
   surname: string;
   user_level: string;
   active: boolean;
-  finance_visibility: boolean;
+  finance_visibility: "HIDDEN" | "VISIBLE";
 };
 
 /**
@@ -26,7 +26,7 @@ export async function getStaffProfileById(
     surname: string;
     user_level: string;
     active: boolean;
-    finance_visibility: boolean;
+    finance_visibility: "HIDDEN" | "VISIBLE";
   }>(
     `SELECT id, email, name, surname, user_level, active, finance_visibility
      FROM staff
@@ -52,7 +52,7 @@ export async function getStaffProfileById(
     surname: row.surname,
     user_level: row.user_level,
     active: row.active,
-    finance_visibility: Boolean(row.finance_visibility),
+    finance_visibility: row.finance_visibility === "VISIBLE" ? "VISIBLE" : "HIDDEN",
   };
 }
 

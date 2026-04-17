@@ -5,6 +5,7 @@ import {
   requirePageEdit,
   requirePageRead,
 } from "../middleware/requirePageAccess";
+import { getFinanceAccessForRequest } from "../middleware/financeAccess";
 import { logAuditFromRequest } from "../services/auditLog";
 import type { AssignmentWithEvent, AssignmentStatus } from "../types";
 import { ensureSupabaseUserForStaff } from "../services/staffSupabase";
@@ -187,9 +188,11 @@ function staffChangedFields(before: StaffItem, after: StaffItem): string[] {
 router.get("/", async (req: Request, res) => {
   try {
     if (!(await requirePageRead(req, res, "database"))) return;
+    const showFinance = await getFinanceAccessForRequest(req);
     const q = (req.query.q as string)?.trim() || "";
     const role_code = (req.query.role_code as string)?.trim() || "";
     const location = (req.query.location as string)?.trim() || "";
+    const user_level = (req.query.user_level as string)?.trim() || "";
     const limit = Math.min(
       Math.max(parseInt(String(req.query.limit), 10) || 50, 1),
       1000
@@ -217,6 +220,11 @@ router.get("/", async (req: Request, res) => {
       params.push(location);
       paramIdx++;
     }
+    if (user_level) {
+      conditions.push(`upper(user_level) = upper($${paramIdx})`);
+      params.push(user_level);
+      paramIdx++;
+    }
 
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -237,7 +245,13 @@ router.get("/", async (req: Request, res) => {
       params
     );
 
-    res.json({ items: itemsResult.rows, total });
+    const items = itemsResult.rows.map((row) => ({
+      ...row,
+      fee: showFinance ? row.fee : null,
+      extra_fee: showFinance ? row.extra_fee : null,
+    }));
+
+    res.json({ items, total });
   } catch (err) {
     console.error("GET /api/staff error:", err);
     res.status(500).json({

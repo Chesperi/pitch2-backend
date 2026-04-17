@@ -4,6 +4,7 @@ import { getCurrentSession } from "../auth/session";
 import { logAuditFromRequest } from "../services/auditLog";
 import type { Assignment, AssignmentWithJoins, AssignmentStatus } from "../types";
 import { resolveStaffDbIntegerId } from "../services/staffService";
+import { getFinanceAccessForRequest } from "../middleware/financeAccess";
 
 const router = Router();
 
@@ -37,7 +38,10 @@ function combineKoDisplay(date: string | null, time: string | null): string | nu
   return d || t || null;
 }
 
-function rowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWithJoins {
+function rowToAssignmentWithJoins(
+  row: Record<string, unknown>,
+  showFinance: boolean
+): AssignmentWithJoins {
   const koItaly = combineKoDisplay(
     row.e_date != null ? String(row.e_date).slice(0, 10) : null,
     row.e_ko_italy_time != null ? String(row.e_ko_italy_time) : null
@@ -68,7 +72,7 @@ function rowToAssignmentWithJoins(row: Record<string, unknown>): AssignmentWithJ
     staffEmail: row.s_email as string | null,
     staffPhone: row.s_phone as string | null,
     staffCompany: row.s_company as string | null,
-    staffFee: row.s_fee != null ? String(row.s_fee) : null,
+    staffFee: showFinance && row.s_fee != null ? String(row.s_fee) : null,
     staffPlates: row.s_plates as string | null,
     roleDescription: row.r_description != null ? String(row.r_description) : null,
   };
@@ -127,6 +131,7 @@ async function resolveStaffPkFromBody(raw: unknown): Promise<number | null | "in
 // GET /api/assignments - list designazioni (optional eventId, staffId, from, to filter)
 router.get("/", async (req: Request, res) => {
   try {
+    const showFinance = await getFinanceAccessForRequest(req);
     const eventId = (req.query.eventId as string)?.trim();
     const staffIdRaw = (req.query.staffId as string)?.trim();
     const from = (req.query.from as string)?.trim();
@@ -202,7 +207,7 @@ router.get("/", async (req: Request, res) => {
     );
 
     const items = itemsResult.rows.map((r) =>
-      rowToAssignmentWithJoins(r as Record<string, unknown>)
+      rowToAssignmentWithJoins(r as Record<string, unknown>, showFinance)
     );
 
     res.json({ items, total });

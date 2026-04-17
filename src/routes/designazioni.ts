@@ -6,6 +6,7 @@ import {
   requirePageEdit,
   requirePageRead,
 } from "../middleware/requirePageAccess";
+import { getFinanceAccessForRequest } from "../middleware/financeAccess";
 import { sendDesignazioniEmail } from "../services/brevo";
 import {
   renderDesignazioniEmail,
@@ -114,6 +115,7 @@ const selectCols = `
 router.get("/me", requirePitch2Session, async (req: Request, res) => {
   try {
     if (!(await requirePageRead(req, res, "designazioni"))) return;
+    const showFinance = await getFinanceAccessForRequest(req);
     const sessionKey = (req as AuthenticatedRequest).staffId;
     const staffPk = await resolveStaffDbIntegerId(sessionKey);
     if (staffPk == null) {
@@ -140,7 +142,7 @@ router.get("/me", requirePitch2Session, async (req: Request, res) => {
         role_code: r.a_role_code,
         role_location: r.a_role_location,
         staff_id: r.a_staff_id ?? null,
-        fee: r.s_fee ?? null,
+        fee: showFinance ? (r.s_fee ?? null) : null,
         location: r.r_location,
         status: r.a_status,
         plate_selected: null,

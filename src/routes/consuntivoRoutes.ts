@@ -2,8 +2,11 @@ import { Router, Request, Response } from "express";
 import { pool } from "../db";
 import type { StaffId } from "../types/staffId";
 import { resolveStaffDbIntegerId } from "../services/staffService";
+import { requirePageRead } from "../middleware/requirePageAccess";
+import { getFinanceAccessForRequest } from "../middleware/financeAccess";
 
 const router = Router();
+export const providersRouter = Router();
 
 export type ConsuntivoRow = {
   eventId: string;
@@ -11,17 +14,23 @@ export type ConsuntivoRow = {
   matchday: number | null;
   staffId: StaffId;
   staffName: string;
+  providerId: StaffId | null;
+  providerName: string | null;
+  providerSurname: string | null;
+  providerCompany: string | null;
   roleCode: string;
   roleName: string;
   location: string | null;
-  fee: number;
+  fee: number | null;
+  extraFee: number | null;
+  invoicedAmount: number | null;
   assignmentStatus: string;
 };
 
 export type ConsuntivoResponse = {
   items: ConsuntivoRow[];
   total: number;
-  totalAmount: number;
+  totalAmount: number | null;
 };
 
 function parseOptionalEventId(raw: unknown): string | null {
@@ -49,6 +58,14 @@ function parseOptionalRoleLocation(raw: unknown): string | null {
   return s.length > 0 ? s : null;
 }
 
+function parseOptionalPositiveInt(raw: unknown): number | null {
+  if (raw === undefined || raw === null) return null;
+  const s = String(raw).trim();
+  if (!/^\d+$/.test(s)) return null;
+  const n = Number.parseInt(s, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function feeToNumber(fee: unknown): number {
   if (fee == null) return 0;
   const n = parseFloat(String(fee).replace(",", "."));
@@ -66,8 +83,48 @@ function combineEventDate(
   return d || t || null;
 }
 
+providersRouter.get("/", async (req: Request, res: Response) => {
+  try {
+    if (!(await requirePageRead(req, res, "consuntivo"))) return;
+    const result = await pool.query<{
+      id: number;
+      name: string | null;
+      surname: string | null;
+      company: string | null;
+    }>(
+      `SELECT id, name, surname, company
+       FROM staff
+       WHERE upper(user_level) = 'PROVIDER'
+       ORDER BY COALESCE(NULLIF(company, ''), surname) ASC, id ASC`
+    );
+
+    const items = result.rows.map((row) => {
+      const name = row.name ?? "";
+      const surname = row.surname ?? "";
+      const company = row.company != null && String(row.company).trim() !== ""
+        ? String(row.company).trim()
+        : null;
+      const fallback = `${name} ${surname}`.trim();
+      return {
+        id: row.id,
+        name,
+        surname,
+        company,
+        label: company ?? fallback,
+      };
+    });
+
+    res.json(items);
+  } catch (err) {
+    console.error("GET /api/providers error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/", async (req: Request, res: Response) => {
   try {
+    if (!(await requirePageRead(req, res, "consuntivo"))) return;
+    const showFinance = await getFinanceAccessForRequest(req);
     const conditions: string[] = ["a.staff_id IS NOT NULL"];
     const params: unknown[] = [];
     let p = 1;
@@ -100,7 +157,7 @@ router.get("/", async (req: Request, res: Response) => {
       params.push(staffPk);
     }
 
-    const roleCode = parseOptionalRoleCode(req.query.roleCode ?? req.query.roleId);
+    const roleCode = parseOptionalRoleCode(req.query.roleCode);
     if (roleCode != null) {
       conditions.push(`a.role_code = $${p++}`);
       params.push(roleCode);
@@ -120,6 +177,18 @@ router.get("/", async (req: Request, res: Response) => {
       params.push(status);
     }
 
+    const providerId = parseOptionalPositiveInt(req.query.providerId);
+    if (providerId != null) {
+      conditions.push(`s.provider_id = $${p++}`);
+      params.push(providerId);
+    }
+
+    const matchday = parseOptionalPositiveInt(req.query.matchday);
+    if (matchday != null) {
+      conditions.push(`e.matchday = $${p++}`);
+      params.push(matchday);
+    }
+
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
@@ -133,7 +202,12 @@ router.get("/", async (req: Request, res: Response) => {
         a.staff_id AS staff_id,
         s.surname AS staff_surname,
         s.name AS staff_name,
-        s.fee AS staff_fee,
+        provider_staff.id AS provider_id,
+        provider_staff.name AS provider_name,
+        provider_staff.surname AS provider_surname,
+        provider_staff.company AS provider_company,
+        COALESCE(srf.fee, s.fee, 0) AS staff_fee,
+        COALESCE(srf.extra_fee, s.extra_fee, 0) AS staff_extra_fee,
         a.role_code AS role_code,
         r.description AS role_description,
         r.location AS role_location,
@@ -142,6 +216,12 @@ router.get("/", async (req: Request, res: Response) => {
       JOIN events e ON e.id = a.event_id
       JOIN staff s ON s.id = a.staff_id
       JOIN roles r ON r.role_code = a.role_code AND r.location = a.role_location
+      LEFT JOIN staff provider_staff
+        ON provider_staff.id = s.provider_id
+      LEFT JOIN staff_role_fees srf
+        ON srf.staff_id = a.staff_id
+       AND srf.role_code = a.role_code
+       AND srf.location = a.role_location
       ${whereClause}
       ORDER BY e.date DESC NULLS LAST, e.ko_italy_time DESC NULLS LAST, e.id DESC, a.id DESC
     `;
@@ -154,7 +234,12 @@ router.get("/", async (req: Request, res: Response) => {
       staff_id: number;
       staff_surname: string;
       staff_name: string;
+      provider_id: number | null;
+      provider_name: string | null;
+      provider_surname: string | null;
+      provider_company: string | null;
       staff_fee: unknown;
+      staff_extra_fee: unknown;
       role_code: string;
       role_description: string | null;
       role_location: string | null;
@@ -163,6 +248,7 @@ router.get("/", async (req: Request, res: Response) => {
 
     const items: ConsuntivoRow[] = result.rows.map((row) => {
       const fee = feeToNumber(row.staff_fee);
+      const extraFee = feeToNumber(row.staff_extra_fee);
       const rc = row.role_code;
       const rn =
         row.role_description != null && String(row.role_description).trim()
@@ -175,20 +261,29 @@ router.get("/", async (req: Request, res: Response) => {
         matchday: row.matchday,
         staffId: String(row.staff_id) as StaffId,
         staffName: `${row.staff_surname} ${row.staff_name}`.trim(),
+        providerId: row.provider_id != null ? (String(row.provider_id) as StaffId) : null,
+        providerName: row.provider_name,
+        providerSurname: row.provider_surname,
+        providerCompany: row.provider_company,
         roleCode: rc,
         roleName: rn,
         location: row.role_location ?? null,
-        fee,
+        fee: showFinance ? fee : null,
+        extraFee: showFinance ? extraFee : null,
+        invoicedAmount: showFinance ? null : null,
         assignmentStatus: row.assignment_status,
       };
     });
 
-    const totalAmount = items.reduce((sum, it) => sum + it.fee, 0);
+    const totalAmount = items.reduce(
+      (sum, it) => sum + (it.fee ?? 0) + (it.extraFee ?? 0),
+      0
+    );
 
     const body: ConsuntivoResponse = {
       items,
       total: items.length,
-      totalAmount,
+      totalAmount: showFinance ? totalAmount : null,
     };
 
     res.json(body);

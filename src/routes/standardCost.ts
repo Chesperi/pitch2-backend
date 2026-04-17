@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { supabaseAdmin } from "../supabaseClient";
 import { requireSupabaseJwt } from "../middleware/requireSupabaseJwt";
 import type { StandardCost } from "../types";
+import { getFinanceAccessForRequest } from "../middleware/financeAccess";
 
 const TABLE = "standard_cost";
 
@@ -12,14 +13,17 @@ function toNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function rowToStandardCost(row: Record<string, unknown>): StandardCost {
+function rowToStandardCost(
+  row: Record<string, unknown>,
+  showFinance: boolean
+): StandardCost {
   return {
     id: Number(row.id),
     service: String(row.service ?? ""),
     provider: String(row.provider ?? ""),
-    costExclusive: toNum(row.costexclusive),
-    costCoExclusive: toNum(row.costcoexclusive),
-    extra: toNum(row.extra),
+    costExclusive: showFinance ? toNum(row.costexclusive) : null,
+    costCoExclusive: showFinance ? toNum(row.costcoexclusive) : null,
+    extra: showFinance ? toNum(row.extra) : null,
     notes: row.notes != null ? String(row.notes) : null,
     createdAt: String(row.created_at ?? ""),
     updatedAt: String(row.updated_at ?? ""),
@@ -95,6 +99,7 @@ router.get("/", async (_req: Request, res: Response) => {
   }
 
   try {
+    const showFinance = await getFinanceAccessForRequest(_req);
     const { data, error } = await supabaseAdmin
       .from(TABLE)
       .select("*")
@@ -108,7 +113,7 @@ router.get("/", async (_req: Request, res: Response) => {
     }
 
     const items = (data ?? []).map((r) =>
-      rowToStandardCost(r as Record<string, unknown>)
+      rowToStandardCost(r as Record<string, unknown>, showFinance)
     );
     res.status(200).json({ items });
   } catch (err) {
@@ -130,6 +135,7 @@ router.get("/:id", async (req: Request, res: Response) => {
   }
 
   try {
+    const showFinance = await getFinanceAccessForRequest(req);
     const { data, error } = await supabaseAdmin
       .from(TABLE)
       .select("*")
@@ -147,7 +153,9 @@ router.get("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    res.status(200).json(rowToStandardCost(data as Record<string, unknown>));
+    res
+      .status(200)
+      .json(rowToStandardCost(data as Record<string, unknown>, showFinance));
   } catch (err) {
     console.error("GET /api/standard-cost/:id error:", err);
     res.status(500).json({ error: "Errore interno" });
@@ -157,6 +165,11 @@ router.get("/:id", async (req: Request, res: Response) => {
 router.post("/", async (req: Request, res: Response) => {
   if (!supabaseAdmin) {
     res.status(503).json({ error: "Supabase non configurato" });
+    return;
+  }
+  const showFinance = await getFinanceAccessForRequest(req);
+  if (!showFinance) {
+    res.status(403).json({ error: "Finance access denied" });
     return;
   }
 
@@ -181,7 +194,9 @@ router.post("/", async (req: Request, res: Response) => {
       return;
     }
 
-    res.status(201).json(rowToStandardCost(data as Record<string, unknown>));
+    res
+      .status(201)
+      .json(rowToStandardCost(data as Record<string, unknown>, true));
   } catch (err) {
     console.error("POST /api/standard-cost error:", err);
     res.status(500).json({ error: "Errore interno" });
@@ -191,6 +206,11 @@ router.post("/", async (req: Request, res: Response) => {
 router.put("/:id", async (req: Request, res: Response) => {
   if (!supabaseAdmin) {
     res.status(503).json({ error: "Supabase non configurato" });
+    return;
+  }
+  const showFinance = await getFinanceAccessForRequest(req);
+  if (!showFinance) {
+    res.status(403).json({ error: "Finance access denied" });
     return;
   }
 
@@ -234,7 +254,9 @@ router.put("/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    res.status(200).json(rowToStandardCost(data as Record<string, unknown>));
+    res
+      .status(200)
+      .json(rowToStandardCost(data as Record<string, unknown>, true));
   } catch (err) {
     console.error("PUT /api/standard-cost/:id error:", err);
     res.status(500).json({ error: "Errore interno" });
