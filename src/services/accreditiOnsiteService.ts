@@ -104,7 +104,9 @@ export async function listOnsiteAccreditationStaff(
           ? String(row.manual_areas).trim()
           : null;
       const roleCode = row.role_code ?? null;
-      const autoAreas = await getAreasForOwnerAndRole(ownerCode, roleCode);
+      const autoAreas =
+        (await getAreasForOwnerAndRole(ownerCode, roleCode)) ??
+        (await getAreasForOwnerAndRole("lega", roleCode));
       console.log("getAreasForOwnerAndRole", ownerCode, roleCode, "->", autoAreas);
       const derivedAreas = manualAreas ?? autoAreas;
 
