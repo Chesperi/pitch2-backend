@@ -498,8 +498,16 @@ router.get("/", async (req: Request, res: Response) => {
         provider_staff.name AS provider_name,
         provider_staff.surname AS provider_surname,
         provider_staff.company AS provider_company,
-        COALESCE(srf.fee, s.fee, 0::numeric) AS staff_fee,
-        COALESCE(srf.extra_fee, s.extra_fee, 0::numeric) AS staff_extra_fee,
+        COALESCE(
+          srf.fee,
+          NULLIF(BTRIM(s.fee::text), '')::numeric,
+          0::numeric
+        ) AS staff_fee,
+        COALESCE(
+          srf.extra_fee,
+          NULLIF(BTRIM(s.extra_fee::text), '')::numeric,
+          0::numeric
+        ) AS staff_extra_fee,
         a.role_code AS role_code,
         r.description AS role_description,
         r.location AS role_location,
