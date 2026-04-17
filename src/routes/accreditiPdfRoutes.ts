@@ -278,7 +278,7 @@ function drawHeader(
     align: "center",
   });
 
-  const lineY = y + 12;
+  const lineY = y + 24;
   doc
     .moveTo(MARGIN, lineY)
     .lineTo(RIGHT_EDGE, lineY)
@@ -290,7 +290,8 @@ function drawHeader(
 }
 
 function drawTableHeader(doc: PDFKit.PDFDocument, atY: number): number {
-  doc.font("OscineBd").fontSize(8).fillColor("#000000");
+  const headerFontSize = 8;
+  doc.font("OscineBd").fontSize(headerFontSize).fillColor("#000000");
   const labels = [
     { k: "company", t: "AZIENDA" },
     { k: "surname", t: "COGNOME" },
@@ -306,7 +307,8 @@ function drawTableHeader(doc: PDFKit.PDFDocument, atY: number): number {
     const x = COL_X[col.k];
     const w = COL_W[col.k];
     doc.rect(x, atY, w, HEADER_ROW_H).lineWidth(0.4).stroke("#000000");
-    doc.text(col.t, x + 2, atY + 5, { width: w - 4, align: "left" });
+    const headerTextY = atY + (HEADER_ROW_H - headerFontSize) / 2;
+    doc.text(col.t, x + 2, headerTextY, { width: w - 4, align: "center" });
   }
   doc.font("OscineRg");
   return atY + HEADER_ROW_H;
@@ -463,6 +465,9 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
       }
 
       const rowHeight = DATA_ROW_H;
+      const dataFontSize = 8;
+      const dataTextY = y + (rowHeight - dataFontSize) / 2;
+      doc.font("OscineRg").fontSize(dataFontSize).fillColor("#000000");
 
       const values: Record<keyof typeof COL_X, string> = {
         company: s.company ?? "",
@@ -479,7 +484,7 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
         const x = COL_X[k];
         const w = COL_W[k];
         doc.rect(x, y, w, rowHeight).lineWidth(0.35).stroke("#000000");
-        doc.text(values[k], x + 2, y + 5, { width: w - 4, align: "left" });
+        doc.text(values[k], x + 2, dataTextY, { width: w - 4, align: "center" });
       });
 
       y += rowHeight;
