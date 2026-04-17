@@ -466,13 +466,6 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
       doc.font("OscineRg").fontSize(8).fillColor("#000000");
 
       const dob = s.dateOfBirth ?? "";
-      doc.text(s.company ?? "", COL_X.company, y, { width: COL_W.company });
-      doc.text(s.surname ?? "", COL_X.surname, y, { width: COL_W.surname });
-      doc.text(s.name ?? "", COL_X.name, y, { width: COL_W.name });
-      doc.text(s.placeOfBirth ?? "", COL_X.placeOfBirth, y, {
-        width: COL_W.placeOfBirth,
-      });
-      doc.text(dob, COL_X.dateOfBirth, y, { width: COL_W.dateOfBirth });
 
       const values: Record<keyof typeof COL_X, string> = {
         company: s.company ?? "",
