@@ -11,6 +11,7 @@ export const providersRouter = Router();
 export type ConsuntivoRow = {
   eventId: string;
   eventDate: string | null;
+  koItalyTime: string | null;
   competitionName: string | null;
   matchday: number | null;
   staffId: StaffId;
@@ -100,15 +101,18 @@ function feeToNumber(fee: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function combineEventDate(
-  date: unknown,
-  koTime: unknown
-): string | null {
-  const d = date != null ? String(date).slice(0, 10) : "";
-  const t = koTime != null ? String(koTime).trim() : "";
-  if (!d && !t) return null;
-  if (d && t) return `${d}T${t}`;
-  return d || t || null;
+function dateToIsoDay(date: unknown): string | null {
+  if (date == null) return null;
+  const raw = String(date).trim();
+  if (!raw) return null;
+  return raw.slice(0, 10);
+}
+
+function koTimeToHm(koTime: unknown): string | null {
+  if (koTime == null) return null;
+  const raw = String(koTime).trim();
+  if (!raw) return null;
+  return raw.slice(0, 5);
 }
 
 providersRouter.get("/", async (req: Request, res: Response) => {
@@ -558,7 +562,8 @@ router.get("/", async (req: Request, res: Response) => {
 
       return {
         eventId: String(row.event_id),
-        eventDate: combineEventDate(row.event_date, row.event_ko_italy_time),
+        eventDate: dateToIsoDay(row.event_date),
+        koItalyTime: koTimeToHm(row.event_ko_italy_time),
         competitionName: row.competition_name ?? null,
         matchday: row.matchday,
         staffId: String(row.staff_id) as StaffId,
