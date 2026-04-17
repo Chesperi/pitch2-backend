@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { pool } from "../db";
 import type {
   EventCreatePayload,
   EventUpdatePayload,
@@ -262,6 +263,25 @@ router.get("/designable", async (_req: Request, res: Response) => {
     res.json({ items: serialized, total });
   } catch (err) {
     console.error("GET /api/events/designable error:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Internal server error",
+    });
+  }
+});
+
+// GET /api/events/matchdays — prima di /:id
+router.get("/matchdays", async (req: Request, res: Response) => {
+  try {
+    if (!(await requirePageRead(req, res, "eventi"))) return;
+    const result = await pool.query<{ matchday: number }>(
+      `SELECT DISTINCT matchday
+       FROM events
+       WHERE matchday IS NOT NULL
+       ORDER BY matchday ASC`
+    );
+    res.json({ matchdays: result.rows.map((row: { matchday: number }) => Number(row.matchday)) });
+  } catch (err) {
+    console.error("GET /api/events/matchdays error:", err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "Internal server error",
     });

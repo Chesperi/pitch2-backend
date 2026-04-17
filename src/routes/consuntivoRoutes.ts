@@ -33,12 +33,6 @@ export type ConsuntivoResponse = {
   totalAmount: number | null;
 };
 
-function parseOptionalEventId(raw: unknown): string | null {
-  if (raw === undefined || raw === null) return null;
-  const s = String(raw).trim();
-  return s.length > 0 ? s : null;
-}
-
 function parseOptionalDate(raw: unknown): string | null {
   if (raw === undefined || raw === null) return null;
   const t = String(raw).trim();
@@ -52,18 +46,29 @@ function parseOptionalRoleCode(raw: unknown): string | null {
   return s.length > 0 ? s : null;
 }
 
+function parseOptionalArray(raw: unknown): string[] {
+  if (raw === undefined || raw === null) return [];
+  const values = Array.isArray(raw) ? raw : [raw];
+  return values
+    .map((value) => String(value ?? "").trim())
+    .filter((value) => value.length > 0);
+}
+
 function parseOptionalRoleLocation(raw: unknown): string | null {
   if (raw === undefined || raw === null) return null;
   const s = String(raw).trim().toUpperCase();
   return s.length > 0 ? s : null;
 }
 
+function parseOptionalPositiveIntArray(raw: unknown): number[] {
+  return parseOptionalArray(raw)
+    .map((value) => Number.parseInt(value, 10))
+    .filter((value) => Number.isFinite(value) && value > 0);
+}
+
 function parseOptionalPositiveInt(raw: unknown): number | null {
-  if (raw === undefined || raw === null) return null;
-  const s = String(raw).trim();
-  if (!/^\d+$/.test(s)) return null;
-  const n = Number.parseInt(s, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  const values = parseOptionalPositiveIntArray(raw);
+  return values.length > 0 ? values[0] : null;
 }
 
 function feeToNumber(fee: unknown): number {
@@ -140,27 +145,33 @@ router.get("/", async (req: Request, res: Response) => {
       params.push(toD);
     }
 
-    const eventId = parseOptionalEventId(req.query.eventId);
-    if (eventId != null) {
-      conditions.push(`a.event_id = $${p++}`);
-      params.push(eventId);
-    }
-
-    const staffKey = req.query.staffId != null ? String(req.query.staffId).trim() : "";
-    if (staffKey) {
-      const staffPk = await resolveStaffDbIntegerId(staffKey);
-      if (staffPk == null) {
-        res.status(400).json({ error: "Invalid staffId" });
-        return;
+    const staffIdValues = parseOptionalPositiveIntArray(req.query.staffIds);
+    if (staffIdValues.length > 0) {
+      conditions.push(`a.staff_id = ANY($${p++}::int[])`);
+      params.push(staffIdValues);
+    } else {
+      const staffKey = req.query.staffId != null ? String(req.query.staffId).trim() : "";
+      if (staffKey) {
+        const staffPk = await resolveStaffDbIntegerId(staffKey);
+        if (staffPk == null) {
+          res.status(400).json({ error: "Invalid staffId" });
+          return;
+        }
+        conditions.push(`a.staff_id = $${p++}`);
+        params.push(staffPk);
       }
-      conditions.push(`a.staff_id = $${p++}`);
-      params.push(staffPk);
     }
 
-    const roleCode = parseOptionalRoleCode(req.query.roleCode);
-    if (roleCode != null) {
-      conditions.push(`a.role_code = $${p++}`);
-      params.push(roleCode);
+    const roleCodes = parseOptionalArray(req.query.roleCodes);
+    if (roleCodes.length > 0) {
+      conditions.push(`a.role_code = ANY($${p++}::text[])`);
+      params.push(roleCodes);
+    } else {
+      const roleCode = parseOptionalRoleCode(req.query.roleCode);
+      if (roleCode != null) {
+        conditions.push(`a.role_code = $${p++}`);
+        params.push(roleCode);
+      }
     }
 
     const roleLocation = parseOptionalRoleLocation(
@@ -177,16 +188,28 @@ router.get("/", async (req: Request, res: Response) => {
       params.push(status);
     }
 
-    const providerId = parseOptionalPositiveInt(req.query.providerId);
-    if (providerId != null) {
-      conditions.push(`s.provider_id = $${p++}`);
-      params.push(providerId);
+    const providerIds = parseOptionalPositiveIntArray(req.query.providerIds);
+    if (providerIds.length > 0) {
+      conditions.push(`s.provider_id = ANY($${p++}::int[])`);
+      params.push(providerIds);
+    } else {
+      const providerId = parseOptionalPositiveInt(req.query.providerId);
+      if (providerId != null) {
+        conditions.push(`s.provider_id = $${p++}`);
+        params.push(providerId);
+      }
     }
 
-    const matchday = parseOptionalPositiveInt(req.query.matchday);
-    if (matchday != null) {
-      conditions.push(`e.matchday = $${p++}`);
-      params.push(matchday);
+    const matchdays = parseOptionalPositiveIntArray(req.query.matchdays);
+    if (matchdays.length > 0) {
+      conditions.push(`e.matchday = ANY($${p++}::int[])`);
+      params.push(matchdays);
+    } else {
+      const matchday = parseOptionalPositiveInt(req.query.matchday);
+      if (matchday != null) {
+        conditions.push(`e.matchday = $${p++}`);
+        params.push(matchday);
+      }
     }
 
     const whereClause = conditions.length
