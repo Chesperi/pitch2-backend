@@ -463,16 +463,13 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
       }
 
       const rowHeight = DATA_ROW_H;
-      doc.font("OscineRg").fontSize(8).fillColor("#000000");
-
-      const dob = s.dateOfBirth ?? "";
 
       const values: Record<keyof typeof COL_X, string> = {
         company: s.company ?? "",
         surname: s.surname ?? "",
         name: s.name ?? "",
         placeOfBirth: s.placeOfBirth ?? "",
-        dateOfBirth: dob,
+        dateOfBirth: s.dateOfBirth ?? "",
         areas: s.areas ?? "",
         role: s.roleCode ?? "",
         plates: s.plates ?? "",
