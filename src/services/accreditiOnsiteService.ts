@@ -103,9 +103,10 @@ export async function listOnsiteAccreditationStaff(
         row.manual_areas != null && String(row.manual_areas).trim() !== ""
           ? String(row.manual_areas).trim()
           : null;
-      const derivedAreas =
-        manualAreas ??
-        (await getAreasForOwnerAndRole(ownerCode, row.role_code ?? null));
+      const roleCode = row.role_code ?? null;
+      const autoAreas = await getAreasForOwnerAndRole(ownerCode, roleCode);
+      console.log("getAreasForOwnerAndRole", ownerCode, roleCode, "->", autoAreas);
+      const derivedAreas = manualAreas ?? autoAreas;
 
       return {
         assignmentId: row.assignment_id,
