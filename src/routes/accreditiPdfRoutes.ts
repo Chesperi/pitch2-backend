@@ -73,10 +73,11 @@ function formatPdfDateShort(date: unknown): string {
   const d = date != null ? String(date).slice(0, 10) : "";
   const parsed = d ? new Date(`${d}T12:00:00`) : null;
   if (!parsed || Number.isNaN(parsed.getTime())) return d;
-  const yy = String(parsed.getFullYear()).slice(-2);
-  const mm = String(parsed.getMonth() + 1).padStart(2, "0");
-  const dd = String(parsed.getDate()).padStart(2, "0");
-  return `${dd}/${mm}/${yy}`;
+  return new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(parsed);
 }
 
 function formatPdfDateLong(date: unknown): string {
@@ -96,6 +97,17 @@ function formatPdfTime(koTime: unknown): string {
 
 function formatPdfHeaderDateTime(date: unknown, koTime: unknown): string {
   return `${formatPdfDateShort(date)} - ${formatPdfTime(koTime)} h`;
+}
+
+function formatPdfBirthDate(raw: unknown): string {
+  if (raw == null || String(raw).trim() === "") return "";
+  const d = new Date(String(raw));
+  if (Number.isNaN(d.getTime())) return String(raw);
+  return new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
 }
 
 function toSafeFileToken(value: string | null | undefined): string {
@@ -358,16 +370,25 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
     );
 
     const onsiteRows = await listOnsiteAccreditationStaff(eventId, ownerCode);
+    const dedupedOnsiteRows = Array.from(
+      new Map(onsiteRows.map((entry) => [entry.staffId, entry])).values()
+    ).sort((a, b) => {
+      const sa = String(a.surname ?? "").toLowerCase();
+      const sb = String(b.surname ?? "").toLowerCase();
+      return sa.localeCompare(sb, "it");
+    });
     await loadAreasForOwner(ownerCode);
-    const { legends: areaLegends } =
-      await getAccreditationAreasByOwner(ownerCode);
+    let { legends: areaLegends } = await getAccreditationAreasByOwner(ownerCode);
+    if (areaLegends.length === 0 && ownerCode !== "lega") {
+      ({ legends: areaLegends } = await getAccreditationAreasByOwner("lega"));
+    }
 
-    const staffRows = onsiteRows.map((s) => ({
+    const staffRows = dedupedOnsiteRows.map((s) => ({
       company: s.company,
       surname: s.surname,
       name: s.name,
       placeOfBirth: s.placeOfBirth,
-      dateOfBirth: s.dateOfBirth,
+      dateOfBirth: formatPdfBirthDate(s.dateOfBirth),
       areas: s.areas ?? "",
       roleCode: s.roleCode,
       plates: s.plates ?? null,
