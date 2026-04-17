@@ -36,8 +36,8 @@ const COL_X = {
   dateOfBirth: MARGIN + 325,
   areas: MARGIN + 410,
   role: MARGIN + 470,
-  plates: MARGIN + 550,
-  notes: MARGIN + 620,
+  plates: MARGIN + 575,
+  notes: MARGIN + 645,
 } as const;
 
 const COL_W = {
@@ -47,9 +47,9 @@ const COL_W = {
   placeOfBirth: 105,
   dateOfBirth: 85,
   areas: 60,
-  role: 80,
+  role: 105,
   plates: 70,
-  notes: RIGHT_EDGE - (MARGIN + 620),
+  notes: RIGHT_EDGE - (MARGIN + 645),
 } as const;
 
 const HEADER_ROW_H = 18;
@@ -464,9 +464,7 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
         y = drawTableHeader(doc, doc.y);
       }
 
-      const rowHeight = DATA_ROW_H;
       const dataFontSize = 8;
-      const dataTextY = y + (rowHeight - dataFontSize) / 2;
       doc.font("OscineRg").fontSize(dataFontSize).fillColor("#000000");
 
       const values: Record<keyof typeof COL_X, string> = {
@@ -480,11 +478,26 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
         plates: s.plates ?? "",
         notes: s.notes ?? "",
       };
+      const cellTextHeights: Partial<Record<keyof typeof COL_X, number>> = {};
+      let maxTextHeight = dataFontSize;
+      (Object.keys(COL_X) as Array<keyof typeof COL_X>).forEach((k) => {
+        const w = COL_W[k];
+        const textHeight = doc.heightOfString(values[k], {
+          width: w - 4,
+          align: "center",
+        });
+        cellTextHeights[k] = textHeight;
+        if (textHeight > maxTextHeight) maxTextHeight = textHeight;
+      });
+      const verticalPadding = 4;
+      const rowHeight = Math.max(DATA_ROW_H, maxTextHeight + verticalPadding * 2);
       (Object.keys(COL_X) as Array<keyof typeof COL_X>).forEach((k) => {
         const x = COL_X[k];
         const w = COL_W[k];
+        const textHeight = cellTextHeights[k] ?? dataFontSize;
+        const textY = y + (rowHeight - textHeight) / 2;
         doc.rect(x, y, w, rowHeight).lineWidth(0.35).stroke("#000000");
-        doc.text(values[k], x + 2, dataTextY, { width: w - 4, align: "center" });
+        doc.text(values[k], x + 2, textY, { width: w - 4, align: "center" });
       });
 
       y += rowHeight;
