@@ -127,5 +127,12 @@ export async function listOnsiteAccreditationStaff(
     })
   );
 
-  return items;
+  const seen = new Set<number>();
+  const deduped = items.filter((row) => {
+    if (seen.has(row.staffId)) return false;
+    seen.add(row.staffId);
+    return true;
+  });
+
+  return deduped;
 }

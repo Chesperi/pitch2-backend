@@ -90,6 +90,16 @@ function formatPdfDateLong(date: unknown): string {
   return `${dd}-${mm}-${yyyy}`;
 }
 
+function formatPdfDateFileToken(date: unknown): string {
+  const d = date != null ? String(date).slice(0, 10) : "";
+  const parsed = d ? new Date(`${d}T12:00:00`) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return "NA";
+  const yy = String(parsed.getFullYear()).slice(-2);
+  const mm = String(parsed.getMonth() + 1).padStart(2, "0");
+  const dd = String(parsed.getDate()).padStart(2, "0");
+  return `${dd}-${mm}-${yy}`;
+}
+
 function formatPdfTime(koTime: unknown): string {
   const t = koTime != null ? String(koTime).trim().slice(0, 5) : "";
   return t || "--:--";
@@ -111,6 +121,17 @@ function formatPdfBirthDate(raw: unknown): string {
 }
 
 function toSafeFileToken(value: string | null | undefined): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "NA";
+  return (
+    raw
+      .replace(/[^a-zA-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .toUpperCase() || "NA"
+  );
+}
+
+function toSafeTeamToken(value: string | null | undefined): string {
   const raw = String(value ?? "").trim();
   if (!raw) return "NA";
   return (
@@ -405,9 +426,11 @@ router.get("/:eventId/pdf", async (req: Request, res: Response) => {
     if (!oscineRg) doc.registerFont("OscineRg", "Helvetica");
     if (!oscineBd) doc.registerFont("OscineBd", "Helvetica-Bold");
     res.setHeader("Content-Type", "application/pdf");
-    const fileName = `MD${row.matchday ?? "-"}_ACCREDITI_${toSafeFileToken(
+    const fileName = `MD${row.matchday ?? "-"}_ACCREDITI_${toSafeTeamToken(
       row.home_team_name_short
-    )}_v_${toSafeFileToken(row.away_team_name_short)}_${formatPdfDateLong(row.date)}.pdf`;
+    )}_-_${toSafeTeamToken(row.away_team_name_short)}_${formatPdfDateFileToken(
+      row.date
+    )}.pdf`;
     res.setHeader(
       "Content-Disposition",
       `attachment; filename="${fileName}"`
