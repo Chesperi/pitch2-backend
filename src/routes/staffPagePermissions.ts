@@ -28,6 +28,8 @@ export type StaffPermissionsRow = {
   staffId: number;
   name: string;
   email: string;
+  userLevel: string;
+  financeVisibility: "HIDDEN" | "VISIBLE";
   permissions: {
     pageKey: string;
     accessLevel: AccessLevel;
@@ -56,8 +58,10 @@ router.get("/", async (_req: Request, res: Response) => {
       surname: string;
       name: string;
       email: string | null;
+      user_level: string | null;
+      finance_visibility: string | null;
     }>(
-      `SELECT id, surname, name, email
+      `SELECT id, surname, name, email, user_level, finance_visibility
        FROM staff
        WHERE active = true
        ORDER BY surname ASC, name ASC, id ASC`
@@ -106,6 +110,11 @@ router.get("/", async (_req: Request, res: Response) => {
         staffId: sid,
         name: fullName,
         email: s.email ?? "",
+        userLevel: String(s.user_level ?? "STAFF").toUpperCase(),
+        financeVisibility:
+          String(s.finance_visibility ?? "").toUpperCase() === "VISIBLE"
+            ? "VISIBLE"
+            : "HIDDEN",
         permissions,
       };
     });
