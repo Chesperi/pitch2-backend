@@ -102,10 +102,27 @@ function feeToNumber(fee: unknown): number {
 }
 
 function dateToIsoDay(date: unknown): string | null {
-  if (date == null) return null;
-  const raw = String(date).trim();
-  if (!raw) return null;
-  return raw.slice(0, 10);
+  if (!date) return null;
+
+  if (typeof date === "string") {
+    const raw = date.trim();
+    if (!raw) return null;
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+      const [y, m, d] = raw.split("T")[0].split("-");
+      return `${d}/${m}/${y}`;
+    }
+    return null;
+  }
+
+  if (date instanceof Date) {
+    if (Number.isNaN(date.getTime())) return null;
+    const d = String(date.getUTCDate()).padStart(2, "0");
+    const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const y = String(date.getUTCFullYear());
+    return `${d}/${m}/${y}`;
+  }
+
+  return null;
 }
 
 function koTimeToHm(koTime: unknown): string | null {
