@@ -64,6 +64,7 @@ router.get("/", async (_req: Request, res: Response) => {
       `SELECT id, surname, name, email, user_level, finance_visibility
        FROM staff
        WHERE active = true
+       AND supabase_id IS NOT NULL
        ORDER BY surname ASC, name ASC, id ASC`
     );
 
